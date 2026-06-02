@@ -113,6 +113,7 @@ export default function QuoteBuilder() {
   const [deliveryMeta, setDeliveryMeta] = useState(null);
   const [notes, setNotes] = useState("");
   const [isCalculatingDelivery, setIsCalculatingDelivery] = useState(false);
+  const [isSavingQuote, setIsSavingQuote] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [routeStatus, setRouteStatus] = useState("idle");
   const [routeError, setRouteError] = useState("");
@@ -722,74 +723,91 @@ export default function QuoteBuilder() {
   }, [yardAddress]);
 
   const saveQuote = async () => {
-    const quote = {
-      estimateType,
-      customer,
-      container: currentQuote.container,
-      mods: currentQuote.mods,
-      disposal,
-      serviceLines,
-      delivery: Number(delivery) || 0,
-      deliveryDetails: deliveryMeta,
-      notes,
-      totals: {
-        containerPrice,
-        modsTotal,
+    if (isSavingQuote) return;
+    if (!estimateType) {
+      alert("Select an Estimate Type before saving.");
+      return;
+    }
+    setIsSavingQuote(true);
+    try {
+      const quote = {
+        estimateType,
+        customer,
+        container: currentQuote.container,
+        mods: currentQuote.mods,
+        disposal,
+        serviceLines,
         delivery: Number(delivery) || 0,
-        subtotal,
-        hst,
-        finalTotal,
-      },
-      date: new Date().toISOString(),
-    };
-
-    const fullName = `${customer.firstName || ""} ${customer.lastName || ""}`.trim();
-    if (fullName) {
-      const next = [...savedCustomers];
-      const idx = next.findIndex((c) => String(c.name || "").toLowerCase() === fullName.toLowerCase());
-      const profile = {
-        name: fullName,
-        firstName: customer.firstName || "",
-        lastName: customer.lastName || "",
-        email: customer.email || "",
-        phone: customer.phone || "",
-        address: customer.address || "",
+        deliveryDetails: deliveryMeta,
+        notes,
+        totals: {
+          containerPrice,
+          modsTotal,
+          delivery: Number(delivery) || 0,
+          subtotal,
+          hst,
+          finalTotal,
+        },
+        date: new Date().toISOString(),
       };
-      if (idx >= 0) next[idx] = profile;
-      else next.push(profile);
-      next.sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
-      setSavedCustomers(next);
-      localStorage.setItem(SAVED_CUSTOMERS_KEY, JSON.stringify(next));
+
+      const fullName = `${customer.firstName || ""} ${customer.lastName || ""}`.trim();
+      if (fullName) {
+        const next = [...savedCustomers];
+        const idx = next.findIndex((c) => String(c.name || "").toLowerCase() === fullName.toLowerCase());
+        const profile = {
+          name: fullName,
+          firstName: customer.firstName || "",
+          lastName: customer.lastName || "",
+          email: customer.email || "",
+          phone: customer.phone || "",
+          address: customer.address || "",
+        };
+        if (idx >= 0) next[idx] = profile;
+        else next.push(profile);
+        next.sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+        setSavedCustomers(next);
+        localStorage.setItem(SAVED_CUSTOMERS_KEY, JSON.stringify(next));
+      }
+      if (estimateType === "services") {
+        learnServiceWorkPresets(serviceLines);
+      }
+
+      await appDB.quotes.add(quote);
+
+      const customerName = `${quote.customer?.firstName || ""} ${quote.customer?.lastName || ""}`.trim() || "Customer";
+      const safeName = customerName.replace(/[\\/:*?"<>|]/g, "").trim() || "Customer";
+      const estNumber = nextEstimateNumber();
+
+      const quoteExcelBlob = await buildEstimateExcelBlob(quote, estNumber, customerName, "ESTIMATE");
+      const quoteExcelFile = `Est ${estNumber} - ${safeName}.xlsx`;
+      await queuePendingOneDriveUpload(quoteExcelFile, quoteExcelBlob, "estimate");
+      const graphSaved = await uploadBlobToOneDrive(quoteExcelFile, quoteExcelBlob, "estimate");
+      if (graphSaved.ok) clearPendingOneDriveUpload();
+      let excelAutoSave = graphSaved;
+      if (!excelAutoSave.ok) excelAutoSave = await writeBlobToEstimateFolder(quoteExcelFile, quoteExcelBlob);
+
+      if (graphSaved.ok) {
+        const graphLocation = graphSaved.parentPath
+          ? `${graphSaved.parentPath.replace("/drive/root:", "")}/${graphSaved.name}`
+          : `${quoteExcelFile}`;
+        alert(`File saved to OneDrive: ${graphLocation}`);
+      } else if (excelAutoSave.ok) {
+        alert(`File saved to selected local folder: ${quoteExcelFile}`);
+      } else {
+        if (graphSaved.reason === "not-configured") {
+          alert("Estimate path is not configured. Set VITE_ONEDRIVE_ESTIMATES_PATH in Vercel and redeploy.");
+        } else {
+          alert("Estimate saved locally in app data. Estimates folder is not configured.");
+        }
+      }
+      clearQuote();
+    } catch (error) {
+      const msg = error?.message || String(error || "Unknown save error");
+      alert(`Could not save estimate. ${msg}`);
+    } finally {
+      setIsSavingQuote(false);
     }
-    if (estimateType === "services") {
-      learnServiceWorkPresets(serviceLines);
-    }
-
-    await appDB.quotes.add(quote);
-
-    const customerName = `${quote.customer?.firstName || ""} ${quote.customer?.lastName || ""}`.trim() || "Customer";
-    const safeName = customerName.replace(/[\\/:*?"<>|]/g, "").trim() || "Customer";
-    const estNumber = nextEstimateNumber();
-
-    const quoteExcelBlob = await buildEstimateExcelBlob(quote, estNumber, customerName, "ESTIMATE");
-    const quoteExcelFile = `Est ${estNumber} - ${safeName}.xlsx`;
-    await queuePendingOneDriveUpload(quoteExcelFile, quoteExcelBlob);
-    const graphSaved = await uploadBlobToOneDrive(quoteExcelFile, quoteExcelBlob);
-    if (graphSaved.ok) clearPendingOneDriveUpload();
-    let excelAutoSave = graphSaved;
-    if (!excelAutoSave.ok) excelAutoSave = await writeBlobToEstimateFolder(quoteExcelFile, quoteExcelBlob);
-
-    if (graphSaved.ok) {
-      const graphLocation = graphSaved.parentPath
-        ? `${graphSaved.parentPath.replace("/drive/root:", "")}/${graphSaved.name}`
-        : `${quoteExcelFile}`;
-      alert(`File saved to OneDrive: ${graphLocation}`);
-    } else if (excelAutoSave.ok) {
-      alert(`File saved to selected local folder: ${quoteExcelFile}`);
-    } else {
-      alert("Estimate saved locally in app data. Estimates folder is not configured.");
-    }
-    clearQuote();
   };
 
   const handleQuickContainerChange = (e) => {
@@ -1188,8 +1206,8 @@ export default function QuoteBuilder() {
 
           <h2 className="final-total">Final Total: {formatCurrency(finalTotal)}</h2>
 
-          <button className="btn-primary" onClick={saveQuote}>
-            Save Quote
+          <button className="btn-primary" onClick={saveQuote} disabled={isSavingQuote}>
+            {isSavingQuote ? "Saving..." : "Save Quote"}
           </button>
         </div>
 

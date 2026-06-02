@@ -748,8 +748,8 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
       printTotal: printData.total,
     });
 
-    await queuePendingOneDriveUpload(excelName, blob);
-    const graphSaved = await uploadBlobToOneDrive(excelName, blob);
+    await queuePendingOneDriveUpload(excelName, blob, "invoice");
+    const graphSaved = await uploadBlobToOneDrive(excelName, blob, "invoice");
     if (graphSaved.ok) clearPendingOneDriveUpload();
     let autoSaved = graphSaved;
     if (!autoSaved.ok) autoSaved = await writeBlobToAutoSaveFolder(excelName, blob);
@@ -956,10 +956,10 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
       printTotal: printData.total,
     });
 
-    let autoSavedPdf = await uploadBlobToOneDrive(pdfName, pdfBlob);
+    let autoSavedPdf = await uploadBlobToOneDrive(pdfName, pdfBlob, "invoice");
     if (!autoSavedPdf.ok) autoSavedPdf = await writeBlobToAutoSaveFolder(pdfName, pdfBlob);
 
-    let autoSavedExcel = await uploadBlobToOneDrive(excelName, excelBlob);
+    let autoSavedExcel = await uploadBlobToOneDrive(excelName, excelBlob, "invoice");
     if (!autoSavedExcel.ok) autoSavedExcel = await writeBlobToAutoSaveFolder(excelName, excelBlob);
 
     let pdfSavedByDownload = false;

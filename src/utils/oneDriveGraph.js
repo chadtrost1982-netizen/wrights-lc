@@ -3,7 +3,9 @@ import { PublicClientApplication } from "@azure/msal-browser";
 const clientId = import.meta.env.VITE_AZURE_CLIENT_ID || "";
 const tenantId = import.meta.env.VITE_AZURE_TENANT_ID || "common";
 const redirectUri = import.meta.env.VITE_AZURE_REDIRECT_URI || window.location.origin;
-const targetPath = import.meta.env.VITE_ONEDRIVE_TARGET_PATH || "";
+const legacyTargetPath = import.meta.env.VITE_ONEDRIVE_TARGET_PATH || "";
+const estimatesTargetPath = import.meta.env.VITE_ONEDRIVE_ESTIMATES_PATH || "";
+const invoicesTargetPath = import.meta.env.VITE_ONEDRIVE_INVOICES_PATH || "";
 
 const fileScope = "Files.ReadWrite";
 const mailScope = "Mail.Send";
@@ -142,18 +144,31 @@ async function getAccessToken(scopes = [fileScope]) {
   return null;
 }
 
-function buildUploadUrl(fileName) {
+function resolveTargetPath(kind = "invoice") {
+  const hasSplitConfig = Boolean(estimatesTargetPath || invoicesTargetPath);
+  if (kind === "estimate") {
+    if (estimatesTargetPath) return estimatesTargetPath;
+    // If split mode is enabled, never silently fall back to invoices for estimates.
+    if (hasSplitConfig) return "";
+    return legacyTargetPath;
+  }
+  if (invoicesTargetPath) return invoicesTargetPath;
+  return legacyTargetPath;
+}
+
+function buildUploadUrl(fileName, kind = "invoice") {
+  const targetPath = resolveTargetPath(kind);
   if (!targetPath) return null;
   const cleanPath = targetPath.replace(/^\/+|\/+$/g, "");
   const encodedName = encodeURIComponent(fileName);
   return `${graphEndpoint}/me/drive/root:/${cleanPath}/${encodedName}:/content`;
 }
 
-export function isOneDriveGraphConfigured() {
-  return Boolean(clientId && targetPath);
+export function isOneDriveGraphConfigured(kind = "invoice") {
+  return Boolean(clientId && resolveTargetPath(kind));
 }
 
-export async function queuePendingOneDriveUpload(fileName, blob) {
+export async function queuePendingOneDriveUpload(fileName, blob, kind = "invoice") {
   try {
     const arrayBuffer = await blob.arrayBuffer();
     const base64 = toBase64(arrayBuffer);
@@ -161,6 +176,7 @@ export async function queuePendingOneDriveUpload(fileName, blob) {
       PENDING_UPLOAD_KEY,
       JSON.stringify({
         fileName,
+        kind,
         contentType: blob.type || "application/octet-stream",
         base64,
       })
@@ -194,7 +210,7 @@ export async function resumePendingOneDriveUpload() {
     const parsed = JSON.parse(raw);
     if (!parsed?.fileName || !parsed?.base64) return { ok: false, reason: "invalid-pending" };
     const blob = fromBase64ToBlob(parsed.base64, parsed.contentType || "application/octet-stream");
-    const result = await uploadBlobToOneDrive(parsed.fileName, blob);
+    const result = await uploadBlobToOneDrive(parsed.fileName, blob, parsed.kind || "invoice");
     if (result.ok) {
       clearPendingOneDriveUpload();
       const location = result.parentPath
@@ -208,15 +224,15 @@ export async function resumePendingOneDriveUpload() {
   }
 }
 
-export async function uploadBlobToOneDrive(fileName, blob) {
-  if (!isOneDriveGraphConfigured()) {
-    return { ok: false, reason: "not-configured" };
+export async function uploadBlobToOneDrive(fileName, blob, kind = "invoice") {
+  if (!isOneDriveGraphConfigured(kind)) {
+    return { ok: false, reason: "not-configured", kind };
   }
 
   const token = await getAccessToken([fileScope]);
   if (!token) return { ok: false, reason: "auth-failed" };
 
-  const url = buildUploadUrl(fileName);
+  const url = buildUploadUrl(fileName, kind);
   if (!url) return { ok: false, reason: "invalid-path" };
 
   const res = await fetch(url, {
