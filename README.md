@@ -15,6 +15,8 @@ Create `.env` from `.env.example` and set values.
 VITE_AZURE_CLIENT_ID=<your-app-client-id>
 VITE_AZURE_TENANT_ID=common
 VITE_AZURE_REDIRECT_URI=http://localhost:5173
+VITE_REQUIRE_AUTH=true
+VITE_ALLOWED_EMAILS=chadtrost@hotmail.com
 VITE_ONEDRIVE_ESTIMATES_PATH=Business/WRIGHTS LC/Estimates
 VITE_ONEDRIVE_INVOICES_PATH=Business/WRIGHTS LC/Invoices
 ```
@@ -22,6 +24,9 @@ VITE_ONEDRIVE_INVOICES_PATH=Business/WRIGHTS LC/Invoices
 - OneDrive paths are relative to your OneDrive root.
 - Do not include leading/trailing slash.
 - Optional legacy fallback: `VITE_ONEDRIVE_TARGET_PATH` (used for both flows only if split vars are not set).
+- Access control:
+  - `VITE_REQUIRE_AUTH=true` forces Microsoft sign-in before app access.
+  - `VITE_ALLOWED_EMAILS` is a comma-separated allowlist; other accounts are blocked.
 
 ## Azure / Entra App Registration
 
@@ -66,6 +71,8 @@ VITE_OSRM_BASE_URL=https://router.project-osrm.org
 VITE_AZURE_CLIENT_ID=<your-app-client-id>
 VITE_AZURE_TENANT_ID=common
 VITE_AZURE_REDIRECT_URI=https://your-app-domain.vercel.app
+VITE_REQUIRE_AUTH=true
+VITE_ALLOWED_EMAILS=chadtrost@hotmail.com
 VITE_ONEDRIVE_ESTIMATES_PATH=Business/WRIGHTS LC/Estimates
 VITE_ONEDRIVE_INVOICES_PATH=Business/WRIGHTS LC/Invoices
 ```

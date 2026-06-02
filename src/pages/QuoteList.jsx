@@ -1,7 +1,13 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { loadEstimateDirectoryHandle, saveEstimateDirectoryHandle } from "../utils/autoSaveFolder";
-import { sendGraphEmailWithAttachment } from "../utils/oneDriveGraph";
+import {
+  deleteOneDriveFile,
+  downloadOneDriveFile,
+  isOneDriveGraphConfigured,
+  listOneDriveFiles,
+  sendGraphEmailWithAttachment,
+} from "../utils/oneDriveGraph";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 
@@ -299,12 +305,24 @@ export default function QuoteList() {
   const [customerName, setCustomerName] = useState("");
   const [customerContacts, setCustomerContacts] = useState([]);
   const [fileSentLog, setFileSentLog] = useState({});
+  const [estimateSource, setEstimateSource] = useState("none");
 
   const loadEstimateFiles = async () => {
+    if (isOneDriveGraphConfigured("estimate")) {
+      const graphList = await listOneDriveFiles("estimate", "Est");
+      if (graphList.ok) {
+        setEstimateFiles(graphList.files || []);
+        setFolderName("OneDrive (Estimates)");
+        setEstimateSource("onedrive");
+        return;
+      }
+    }
+
     const handle = await loadEstimateDirectoryHandle();
     if (!handle) {
       setEstimateFiles([]);
       setFolderName("");
+      setEstimateSource("none");
       return;
     }
 
@@ -322,6 +340,7 @@ export default function QuoteList() {
     }
     entries.sort((a, b) => b.updatedAt - a.updatedAt);
     setEstimateFiles(entries);
+    setEstimateSource("local");
   };
 
 
@@ -349,6 +368,17 @@ export default function QuoteList() {
   }, []);
 
   const deleteEstimateFile = async (name) => {
+    if (estimateSource === "onedrive") {
+      if (!confirm(`Delete ${name}?`)) return;
+      const result = await deleteOneDriveFile("estimate", name);
+      if (!result.ok) {
+        alert("Could not delete file from OneDrive.");
+        return;
+      }
+      await loadEstimateFiles();
+      return;
+    }
+
     const handle = await loadEstimateDirectoryHandle();
     if (!handle) return;
     if (!confirm(`Delete ${name}?`)) return;
@@ -365,12 +395,21 @@ export default function QuoteList() {
     const existing = customerContacts.find((c) => c.name.toLowerCase() === guessedCustomer.toLowerCase());
     let inferredEmail = existing?.email || "";
     try {
-      const handle = await loadEstimateDirectoryHandle();
-      if (handle) {
-        const fh = await handle.getFileHandle(fileName);
-        const f = await fh.getFile();
-        const fileEmail = await extractCustomerEmailFromEstimateFile(f);
-        if (fileEmail) inferredEmail = fileEmail;
+      if (estimateSource === "onedrive") {
+        const dl = await downloadOneDriveFile("estimate", fileName);
+        if (dl.ok) {
+          const file = new File([dl.blob], fileName, { type: dl.blob.type || "application/octet-stream" });
+          const fileEmail = await extractCustomerEmailFromEstimateFile(file);
+          if (fileEmail) inferredEmail = fileEmail;
+        }
+      } else {
+        const handle = await loadEstimateDirectoryHandle();
+        if (handle) {
+          const fh = await handle.getFileHandle(fileName);
+          const f = await fh.getFile();
+          const fileEmail = await extractCustomerEmailFromEstimateFile(f);
+          if (fileEmail) inferredEmail = fileEmail;
+        }
       }
     } catch {
       // ignore parse/read issues and keep fallback
@@ -393,16 +432,27 @@ export default function QuoteList() {
       return;
     }
 
-    const handle = await loadEstimateDirectoryHandle();
-    if (!handle) {
-      alert("Auto-save folder is not configured.");
-      return;
-    }
-
     setSending(true);
     try {
-      const fileHandle = await handle.getFileHandle(emailFile);
-      const file = await fileHandle.getFile();
+      let file = null;
+      if (estimateSource === "onedrive") {
+        const dl = await downloadOneDriveFile("estimate", emailFile);
+        if (!dl.ok) {
+          alert("Could not load estimate from OneDrive.");
+          setSending(false);
+          return;
+        }
+        file = new File([dl.blob], emailFile, { type: dl.blob.type || "application/octet-stream" });
+      } else {
+        const handle = await loadEstimateDirectoryHandle();
+        if (!handle) {
+          alert("Estimates folder is not configured.");
+          setSending(false);
+          return;
+        }
+        const fileHandle = await handle.getFileHandle(emailFile);
+        file = await fileHandle.getFile();
+      }
       const lowerName = String(emailFile || "").toLowerCase();
       const looksLikeExcelName = /\.(xlsx|xlsm|xls)$/i.test(lowerName);
       const looksLikeExcelMime =
@@ -467,14 +517,24 @@ export default function QuoteList() {
   };
 
   const createInvoiceFromEstimate = async (fileName) => {
-    const handle = await loadEstimateDirectoryHandle();
-    if (!handle) {
-      alert("Estimates folder is not configured.");
-      return;
-    }
     try {
-      const fileHandle = await handle.getFileHandle(fileName);
-      const file = await fileHandle.getFile();
+      let file = null;
+      if (estimateSource === "onedrive") {
+        const dl = await downloadOneDriveFile("estimate", fileName);
+        if (!dl.ok) {
+          alert("Could not load estimate from OneDrive.");
+          return;
+        }
+        file = new File([dl.blob], fileName, { type: dl.blob.type || "application/octet-stream" });
+      } else {
+        const handle = await loadEstimateDirectoryHandle();
+        if (!handle) {
+          alert("Estimates folder is not configured.");
+          return;
+        }
+        const fileHandle = await handle.getFileHandle(fileName);
+        file = await fileHandle.getFile();
+      }
       const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
       const infoSheetName = workbook.SheetNames.includes("Info")
         ? "Info"

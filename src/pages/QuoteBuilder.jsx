@@ -295,20 +295,21 @@ export default function QuoteBuilder() {
             amount: qty * rate,
           });
         });
-    } else if (quote.container?.name) {
+    } else if (quote.container) {
       const qty = Number(quote.container?.qty || 1);
       const deliveryAmount = Number(quote.totals.delivery || 0);
       const amount = Number(quote.totals.containerPrice || 0) + deliveryAmount;
       const rate = qty > 0 ? amount / qty : amount;
+      const baseContainerName = String(quote.container?.name || "").trim() || "Container";
       const containerLabel = deliveryAmount > 0
-        ? `${quote.container.name} (Delivery Included)`
-        : quote.container.name;
+        ? `${baseContainerName} (Delivery Included)`
+        : baseContainerName;
       detailRows.push({ description: containerLabel, qty, rate, amount });
       (quote.mods || []).forEach((m) => {
         const qty = Number(m.qty || 1);
         const amount = Number(m.finalPrice || 0);
         const rate = qty > 0 ? amount / qty : amount;
-        detailRows.push({ description: m.name, qty, rate, amount });
+        detailRows.push({ description: String(m.name || "").trim() || "Modification", qty, rate, amount });
       });
     }
 

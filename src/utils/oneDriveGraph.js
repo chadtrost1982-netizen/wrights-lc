@@ -74,6 +74,41 @@ export async function initializeOneDriveAuth() {
   await msalInitPromise;
 }
 
+export async function getSignedInEmail() {
+  const app = getMsalApp();
+  if (!app) return "";
+  await initializeOneDriveAuth();
+  const active = app.getActiveAccount();
+  const fallback = app.getAllAccounts()[0] || null;
+  const account = active || fallback;
+  if (!account) return "";
+  app.setActiveAccount(account);
+  return String(account.username || account.name || "").trim();
+}
+
+export async function beginSignInRedirect() {
+  const app = getMsalApp();
+  if (!app) return { ok: false, reason: "not-configured" };
+  await initializeOneDriveAuth();
+  await app.loginRedirect({
+    scopes: [basicScope, fileScope, mailScope, mailReadWriteScope],
+    redirectUri,
+    redirectStartPage: window.location.href,
+  });
+  return { ok: false, reason: "redirecting" };
+}
+
+export async function signOutRedirect() {
+  const app = getMsalApp();
+  if (!app) return;
+  await initializeOneDriveAuth();
+  const account = app.getActiveAccount() || app.getAllAccounts()[0] || undefined;
+  await app.logoutRedirect({
+    account,
+    postLogoutRedirectUri: redirectUri,
+  });
+}
+
 async function getAccessToken(scopes = [fileScope]) {
   const app = getMsalApp();
   if (!app) return null;
@@ -261,6 +296,61 @@ export async function uploadBlobToOneDrive(fileName, blob, kind = "invoice") {
     name: payload?.name || fileName,
     parentPath: payload?.parentReference?.path || "",
   };
+}
+
+export async function listOneDriveFiles(kind = "invoice", startsWith = "") {
+  if (!isOneDriveGraphConfigured(kind)) return { ok: false, reason: "not-configured" };
+  const token = await getAccessToken([fileScope]);
+  if (!token) return { ok: false, reason: "auth-failed" };
+  const folder = resolveTargetPath(kind);
+  if (!folder) return { ok: false, reason: "invalid-path" };
+  const cleanPath = folder.replace(/^\/+|\/+$/g, "");
+  const url = `${graphEndpoint}/me/drive/root:/${cleanPath}:/children?$top=200`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) return { ok: false, reason: "list-failed", status: res.status };
+  const payload = await res.json().catch(() => ({}));
+  const values = Array.isArray(payload?.value) ? payload.value : [];
+  const filtered = values
+    .filter((v) => v?.file && String(v.name || "").toLowerCase().startsWith(String(startsWith || "").toLowerCase()))
+    .map((v) => ({
+      id: v.id,
+      name: v.name,
+      size: Number(v.size || 0),
+      updatedAt: v.lastModifiedDateTime ? new Date(v.lastModifiedDateTime).getTime() : 0,
+      webUrl: v.webUrl || "",
+      parentPath: v.parentReference?.path || "",
+    }));
+  filtered.sort((a, b) => b.updatedAt - a.updatedAt);
+  return { ok: true, files: filtered };
+}
+
+export async function downloadOneDriveFile(kind = "invoice", fileName = "") {
+  if (!isOneDriveGraphConfigured(kind)) return { ok: false, reason: "not-configured" };
+  const token = await getAccessToken([fileScope]);
+  if (!token) return { ok: false, reason: "auth-failed" };
+  const folder = resolveTargetPath(kind);
+  if (!folder) return { ok: false, reason: "invalid-path" };
+  const cleanPath = folder.replace(/^\/+|\/+$/g, "");
+  const encodedName = encodeURIComponent(fileName);
+  const url = `${graphEndpoint}/me/drive/root:/${cleanPath}/${encodedName}:/content`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) return { ok: false, reason: "download-failed", status: res.status };
+  const blob = await res.blob();
+  return { ok: true, blob };
+}
+
+export async function deleteOneDriveFile(kind = "invoice", fileName = "") {
+  if (!isOneDriveGraphConfigured(kind)) return { ok: false, reason: "not-configured" };
+  const token = await getAccessToken([fileScope]);
+  if (!token) return { ok: false, reason: "auth-failed" };
+  const folder = resolveTargetPath(kind);
+  if (!folder) return { ok: false, reason: "invalid-path" };
+  const cleanPath = folder.replace(/^\/+|\/+$/g, "");
+  const encodedName = encodeURIComponent(fileName);
+  const url = `${graphEndpoint}/me/drive/root:/${cleanPath}/${encodedName}`;
+  const res = await fetch(url, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok && res.status !== 204) return { ok: false, reason: "delete-failed", status: res.status };
+  return { ok: true };
 }
 
 function toBase64(arrayBuffer) {

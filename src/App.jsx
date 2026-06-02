@@ -1,5 +1,5 @@
 import { BrowserRouter as Router, Routes, Route, Link } from "react-router-dom";
-import { useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Dashboard from "./pages/Dashboard";
 import Presets from "./pages/Presets";
 import Mods from "./pages/Mods";
@@ -8,13 +8,82 @@ import QuoteBuilder from "./pages/QuoteBuilder";
 import QuoteList from "./pages/QuoteList";
 import QuoteView from "./pages/QuoteView";
 import InvoiceTools from "./pages/InvoiceTools";
-import { consumeSaveNotice } from "./utils/oneDriveGraph";
+import {
+  beginSignInRedirect,
+  consumeSaveNotice,
+  getSignedInEmail,
+  signOutRedirect,
+} from "./utils/oneDriveGraph";
 
 export default function App() {
+  const [authState, setAuthState] = useState("checking");
+  const [activeEmail, setActiveEmail] = useState("");
+  const requireAuth = String(import.meta.env.VITE_REQUIRE_AUTH || "false").toLowerCase() === "true";
+  const allowedEmails = useMemo(
+    () =>
+      String(import.meta.env.VITE_ALLOWED_EMAILS || "")
+        .split(",")
+        .map((x) => x.trim().toLowerCase())
+        .filter(Boolean),
+    []
+  );
+
   useEffect(() => {
     const notice = consumeSaveNotice();
     if (notice) alert(notice);
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      if (!requireAuth) {
+        if (!cancelled) setAuthState("authorized");
+        return;
+      }
+
+      const email = String(await getSignedInEmail()).trim();
+      if (!email) {
+        await beginSignInRedirect();
+        return;
+      }
+
+      const lower = email.toLowerCase();
+      const allowed = allowedEmails.length === 0 || allowedEmails.includes(lower);
+      if (cancelled) return;
+      setActiveEmail(email);
+      setAuthState(allowed ? "authorized" : "denied");
+    };
+
+    run().catch(() => {
+      if (!cancelled) setAuthState("denied");
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [requireAuth, allowedEmails]);
+
+  if (authState === "checking") {
+    return (
+      <div className="page">
+        <h1 className="brand-title">Wrights L.C.</h1>
+        <p>Checking access...</p>
+      </div>
+    );
+  }
+
+  if (authState === "denied") {
+    return (
+      <div className="page">
+        <h1 className="brand-title">Wrights L.C.</h1>
+        <p>Access denied for this account.</p>
+        <p style={{ opacity: 0.85 }}>Signed in: {activeEmail || "Unknown"}</p>
+        <button className="btn-secondary" onClick={() => signOutRedirect()}>
+          Sign Out
+        </button>
+      </div>
+    );
+  }
 
   return (
     <Router>
