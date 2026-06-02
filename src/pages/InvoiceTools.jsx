@@ -3,8 +3,19 @@ import * as XLSX from "xlsx";
 import ExcelJS from "exceljs";
 import jsPDF from "jspdf";
 import { formatCurrency } from "../utils/currency";
-import { loadAutoSaveDirectoryHandle, writeBlobToAutoSaveFolder } from "../utils/autoSaveFolder";
-import { clearPendingOneDriveUpload, queuePendingOneDriveUpload, sendGraphEmailWithAttachment, uploadBlobToOneDrive } from "../utils/oneDriveGraph";
+import {
+  loadAutoSaveDirectoryHandle,
+  saveAutoSaveDirectoryHandle,
+  writeBlobToAutoSaveFolder,
+} from "../utils/autoSaveFolder";
+import {
+  clearPendingOneDriveUpload,
+  isOneDriveGraphConfigured,
+  listOneDriveFiles,
+  queuePendingOneDriveUpload,
+  sendGraphEmailWithAttachment,
+  uploadBlobToOneDrive,
+} from "../utils/oneDriveGraph";
 
 const INVOICE_COUNTER_KEY = "wrights_invoice_counter";
 const WHEEL_INVOICE_START = 492;
@@ -430,6 +441,9 @@ async function buildStyledExcelBlob(saveRows, options = {}) {
 }
 
 export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder = true, showCreate = true }) {
+  const oneDriveInvoicesPath = String(import.meta.env.VITE_ONEDRIVE_INVOICES_PATH || "").trim();
+  const oneDriveLegacyPath = String(import.meta.env.VITE_ONEDRIVE_TARGET_PATH || "").trim();
+  const graphMode = isOneDriveGraphConfigured("invoice");
   const [invoiceType, setInvoiceType] = useState("wheel");
   const [fileName, setFileName] = useState("");
   const [rows, setRows] = useState([]);
@@ -491,7 +505,30 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
   const wheelTotal = wheelSubtotal + wheelHst;
 
   const loadFolderContents = async () => {
-    const handle = await loadAutoSaveDirectoryHandle();
+    if (graphMode) {
+      const listed = await listOneDriveFiles("invoice", "");
+      if (listed.ok) {
+        setFolderFiles(listed.files || []);
+        setFolderName(`OneDrive: ${oneDriveInvoicesPath || oneDriveLegacyPath || "(invoices path not configured)"}`);
+        return;
+      }
+    }
+
+    let handle = await loadAutoSaveDirectoryHandle();
+    if (!handle && !graphMode && window.showDirectoryPicker) {
+      const shouldPick = confirm(
+        "Select your Invoices folder now (recommended: C:\\Users\\chadt\\OneDrive\\Desktop\\Business\\WRIGHTS LC\\Invoices)?"
+      );
+      if (shouldPick) {
+        try {
+          handle = await window.showDirectoryPicker();
+          await saveAutoSaveDirectoryHandle(handle);
+        } catch {
+          // User canceled or selection failed.
+        }
+      }
+    }
+
     if (!handle) {
       setFolderFiles([]);
       setFolderName("");
@@ -1168,6 +1205,22 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
     setRows((prev) => [...prev, { DESCRIPTION: "", "HR/QTY": "", RATE: "", AMOUNT: "" }]);
   };
 
+  const selectInvoiceFolder = async () => {
+    if (!window.showDirectoryPicker) {
+      alert("Folder selection is not available in this browser.");
+      return;
+    }
+
+    try {
+      const picked = await window.showDirectoryPicker();
+      await saveAutoSaveDirectoryHandle(picked);
+      setFolderName(picked.name || "");
+      await loadFolderContents();
+    } catch {
+      // user canceled or selection failed
+    }
+  };
+
   const removeGenericRow = (index) => {
     setRows((prev) => prev.filter((_, i) => i !== index));
   };
@@ -1190,10 +1243,28 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
       {showFolder && (
       <div className="settings-card win-panel">
         <h3>Existing Folder Contents</h3>
-        <p>{folderName ? `Folder: ${folderName}` : "Auto-save folder not configured."}</p>
+        <p>
+          {folderName
+            ? `Folder: ${folderName}`
+            : (graphMode ? "OneDrive invoice path not configured." : "Auto-save folder not configured.")}
+        </p>
         <button className="btn-secondary win-btn-secondary" onClick={loadFolderContents}>
           Refresh Folder List
         </button>
+        {!folderName && !graphMode && (
+          <>
+            <button
+              className="btn-secondary win-btn-secondary"
+              onClick={selectInvoiceFolder}
+              style={{ marginLeft: "8px" }}
+            >
+              Select invoice folder
+            </button>
+            <p style={{ marginTop: "10px", opacity: 0.9 }}>
+              Select a local invoice folder to enable auto-save and file listing.
+            </p>
+          </>
+        )}
         <p style={{ marginTop: "10px" }}>Click an Excel file below to load it.</p>
 
         <div style={{ marginTop: "10px", maxHeight: "220px", overflowY: "auto" }}>

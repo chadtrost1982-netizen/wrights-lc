@@ -9,10 +9,17 @@ import AddressAutocompleteInput from "../components/AddressAutocompleteInput";
 import {
   loadEstimateDirectoryHandle,
   loadAutoSaveDirectoryHandle,
+  saveAutoSaveDirectoryHandle,
 } from "../utils/autoSaveFolder";
 import { useEffect } from "react";
 
 export default function Settings() {
+  const oneDriveEstimatesPath = String(import.meta.env.VITE_ONEDRIVE_ESTIMATES_PATH || "").trim();
+  const oneDriveInvoicesPath = String(import.meta.env.VITE_ONEDRIVE_INVOICES_PATH || "").trim();
+  const oneDriveLegacyPath = String(import.meta.env.VITE_ONEDRIVE_TARGET_PATH || "").trim();
+  const graphClientId = String(import.meta.env.VITE_AZURE_CLIENT_ID || "").trim();
+  const graphMode = Boolean(graphClientId && (oneDriveEstimatesPath || oneDriveInvoicesPath || oneDriveLegacyPath));
+
   const {
     yardAddress,
     delivery20Rate,
@@ -43,6 +50,21 @@ export default function Settings() {
     };
     loadFolder();
   }, []);
+
+  const selectInvoiceFolder = async () => {
+    if (!window.showDirectoryPicker) {
+      alert("Your browser does not support folder selection.");
+      return;
+    }
+
+    try {
+      const picked = await window.showDirectoryPicker();
+      await saveAutoSaveDirectoryHandle(picked);
+      setAutoSaveFolderName(picked.name || "");
+    } catch {
+      // User canceled or selection failed.
+    }
+  };
 
   const handleDistance = async () => {
     const result = await getRouteByAddress(yardAddress, dest);
@@ -149,16 +171,35 @@ export default function Settings() {
 
       <div className="settings-card">
         <h3>Auto-Save Folders (Read-Only)</h3>
-        <p>
-          {autoSaveFolderName
-            ? `Invoices folder: ${autoSaveFolderName}`
-            : "Invoices folder not selected."}
-        </p>
-        <p>
-          {estimateFolderName
-            ? `Estimates folder: ${estimateFolderName}`
-            : "Estimates folder not selected."}
-        </p>
+        {graphMode ? (
+          <>
+            <p><strong>OneDrive auto-save active</strong></p>
+            <p>
+              Invoices path:{" "}
+              {oneDriveInvoicesPath || oneDriveLegacyPath || "(not configured)"}
+            </p>
+            <p>
+              Estimates path:{" "}
+              {oneDriveEstimatesPath || oneDriveLegacyPath || "(not configured)"}
+            </p>
+          </>
+        ) : (
+          <>
+            <p>
+              {autoSaveFolderName
+                ? `Invoices folder: ${autoSaveFolderName}`
+                : "Invoices folder not selected."}
+            </p>
+            <button className="btn-secondary win-btn-secondary" onClick={selectInvoiceFolder}>
+              {autoSaveFolderName ? "Change invoice folder" : "Select invoice folder"}
+            </button>
+            <p>
+              {estimateFolderName
+                ? `Estimates folder: ${estimateFolderName}`
+                : "Estimates folder not selected."}
+            </p>
+          </>
+        )}
       </div>
 
       <div className="settings-card">
