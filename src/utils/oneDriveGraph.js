@@ -306,6 +306,40 @@ export async function uploadBlobToOneDrive(fileName, blob, kind = "invoice") {
   };
 }
 
+async function listOneDriveFilesRecursive(token, folderId, startsWith = "", allFiles = [], maxDepth = 5, currentDepth = 0) {
+  if (currentDepth >= maxDepth) return allFiles;
+  
+  try {
+    const url = `${graphEndpoint}/me/drive/items/${folderId}/children?$top=200`;
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) return allFiles;
+    
+    const payload = await res.json().catch(() => ({}));
+    const values = Array.isArray(payload?.value) ? payload.value : [];
+    
+    for (const v of values) {
+      if (v?.file && String(v.name || "").toLowerCase().startsWith(String(startsWith || "").toLowerCase())) {
+        allFiles.push({
+          id: v.id,
+          name: v.name,
+          size: Number(v.size || 0),
+          updatedAt: v.lastModifiedDateTime ? new Date(v.lastModifiedDateTime).getTime() : 0,
+          webUrl: v.webUrl || "",
+          parentPath: v.parentReference?.path || "",
+        });
+      }
+      
+      if (v?.folder) {
+        await listOneDriveFilesRecursive(token, v.id, startsWith, allFiles, maxDepth, currentDepth + 1);
+      }
+    }
+  } catch (err) {
+    // Silently handle errors
+  }
+  
+  return allFiles;
+}
+
 export async function listOneDriveFiles(kind = "invoice", startsWith = "") {
   if (!isOneDriveGraphConfigured(kind)) return { ok: false, reason: "not-configured" };
   const token = await getAccessToken([fileScope]);
@@ -313,21 +347,18 @@ export async function listOneDriveFiles(kind = "invoice", startsWith = "") {
   const folder = resolveTargetPath(kind);
   if (!folder) return { ok: false, reason: "invalid-path" };
   const encodedPath = encodeGraphPath(folder);
-  const url = `${graphEndpoint}/me/drive/root:/${encodedPath}:/children?$top=200`;
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-  if (!res.ok) return { ok: false, reason: "list-failed", status: res.status };
-  const payload = await res.json().catch(() => ({}));
-  const values = Array.isArray(payload?.value) ? payload.value : [];
-  const filtered = values
-    .filter((v) => v?.file && String(v.name || "").toLowerCase().startsWith(String(startsWith || "").toLowerCase()))
-    .map((v) => ({
-      id: v.id,
-      name: v.name,
-      size: Number(v.size || 0),
-      updatedAt: v.lastModifiedDateTime ? new Date(v.lastModifiedDateTime).getTime() : 0,
-      webUrl: v.webUrl || "",
-      parentPath: v.parentReference?.path || "",
-    }));
+  
+  // First get the folder ID
+  const folderUrl = `${graphEndpoint}/me/drive/root:/${encodedPath}`;
+  const folderRes = await fetch(folderUrl, { headers: { Authorization: `Bearer ${token}` } });
+  if (!folderRes.ok) return { ok: false, reason: "list-failed", status: folderRes.status };
+  
+  const folderPayload = await folderRes.json().catch(() => ({}));
+  const folderId = folderPayload?.id;
+  if (!folderId) return { ok: false, reason: "folder-not-found" };
+  
+  // Now recursively list all files in this folder and subfolders
+  const filtered = await listOneDriveFilesRecursive(token, folderId, startsWith);
   filtered.sort((a, b) => b.updatedAt - a.updatedAt);
   return { ok: true, files: filtered };
 }
