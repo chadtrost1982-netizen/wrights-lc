@@ -84,11 +84,16 @@ function findRefEstNumber(name) {
   return m ? m[1] : "";
 }
 
-function nextInvoiceNumber() {
+function nextInvoiceNumber(fileList = []) {
   const stored = localStorage.getItem(INVOICE_COUNTER_KEY);
   const baseline = WHEEL_INVOICE_START - 1;
   const parsed = Number(stored ?? String(baseline));
-  const current = Number.isFinite(parsed) ? Math.max(parsed, baseline) : baseline;
+  const storedCurrent = Number.isFinite(parsed) ? Math.max(parsed, baseline) : baseline;
+  
+  // Also check the actual files to handle multi-device syncing
+  const maxFromFiles = getMaxInvoiceNumberFromFiles(fileList);
+  const current = Math.max(storedCurrent, maxFromFiles);
+  
   const next = current + 1;
   localStorage.setItem(INVOICE_COUNTER_KEY, String(next));
   return String(next);
@@ -183,6 +188,38 @@ function emailErrorMessage(result) {
     return `Graph send failed (${result.status || "unknown"}).${extra} Ensure Mail.Send is granted.`;
   }
   return `Could not send email. ${result.reason || ""}`.trim();
+}
+
+function extractInvoiceNumber(fileName) {
+  const match = String(fileName || "").match(/Inv\s+(\d+)/i);
+  return match ? parseInt(match[1], 10) : 0;
+}
+
+function getMaxInvoiceNumberFromFiles(files) {
+  if (!Array.isArray(files) || files.length === 0) return 0;
+  return files.reduce((max, file) => {
+    const num = extractInvoiceNumber(file.name);
+    return Math.max(max, num);
+  }, 0);
+}
+
+async function collectAllInvoiceFilesRecursive(dirHandle, maxDepth = 5, currentDepth = 0) {
+  const allFiles = [];
+  if (currentDepth >= maxDepth) return allFiles;
+  
+  try {
+    for await (const [name, entryHandle] of dirHandle.entries()) {
+      if (entryHandle.kind === "file") {
+        allFiles.push({ name });
+      } else if (entryHandle.kind === "directory") {
+        const subFiles = await collectAllInvoiceFilesRecursive(entryHandle, maxDepth, currentDepth + 1);
+        allFiles.push(...subFiles);
+      }
+    }
+  } catch (err) {
+    // Silently handle permission errors on subdirectories
+  }
+  return allFiles;
 }
 
 function guessCustomerFromFileName(fileName) {
@@ -508,7 +545,16 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
     if (graphMode) {
       const listed = await listOneDriveFiles("invoice", "");
       if (listed.ok) {
-        setFolderFiles(listed.files || []);
+        const files = listed.files || [];
+        // Update counter for OneDrive files too
+        const maxNum = getMaxInvoiceNumberFromFiles(files);
+        const stored = localStorage.getItem(INVOICE_COUNTER_KEY);
+        const baseline = WHEEL_INVOICE_START - 1;
+        const currentCounter = Number.isFinite(Number(stored)) ? Number(stored) : baseline;
+        if (maxNum >= currentCounter) {
+          localStorage.setItem(INVOICE_COUNTER_KEY, String(maxNum));
+        }
+        setFolderFiles(files);
         setFolderName(`OneDrive: ${oneDriveInvoicesPath || oneDriveLegacyPath || "(invoices path not configured)"}`);
         return;
       }
@@ -543,7 +589,16 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
       files.push({ name, size: file.size, updatedAt: file.lastModified });
     }
 
-    files.sort((a, b) => b.updatedAt - a.updatedAt);
+    files.sort((a, b) => extractInvoiceNumber(b.name) - extractInvoiceNumber(a.name));
+    // Update counter by checking all files recursively (including subfolders like Paid)
+    const allFilesRecursive = await collectAllInvoiceFilesRecursive(handle);
+    const maxNum = getMaxInvoiceNumberFromFiles(allFilesRecursive);
+    const stored = localStorage.getItem(INVOICE_COUNTER_KEY);
+    const baseline = WHEEL_INVOICE_START - 1;
+    const currentCounter = Number.isFinite(Number(stored)) ? Number(stored) : baseline;
+    if (maxNum >= currentCounter) {
+      localStorage.setItem(INVOICE_COUNTER_KEY, String(maxNum));
+    }
     setFolderFiles(files);
   };
 
@@ -613,7 +668,7 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
   };
 
   const buildInvoiceBaseName = (saveRows, linesForCustomer) => {
-    const invoiceNumber = nextInvoiceNumber();
+    const invoiceNumber = nextInvoiceNumber(folderFiles);
     const ref = String(refEstNumber || "").trim();
     if (isWheelStyle) {
       if (invoiceType === "services") {

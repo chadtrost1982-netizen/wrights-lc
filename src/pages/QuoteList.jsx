@@ -60,6 +60,38 @@ function guessCustomerFromFileName(fileName) {
   return "";
 }
 
+function extractEstimateNumber(fileName) {
+  const match = String(fileName || "").match(/Est\s+(\d+)/i);
+  return match ? parseInt(match[1], 10) : 0;
+}
+
+function getMaxEstimateNumberFromFiles(files) {
+  if (!Array.isArray(files) || files.length === 0) return 0;
+  return files.reduce((max, file) => {
+    const num = extractEstimateNumber(file.name);
+    return Math.max(max, num);
+  }, 0);
+}
+
+async function collectAllEstimateFilesRecursive(dirHandle, maxDepth = 5, currentDepth = 0) {
+  const allFiles = [];
+  if (currentDepth >= maxDepth) return allFiles;
+  
+  try {
+    for await (const [name, entryHandle] of dirHandle.entries()) {
+      if (entryHandle.kind === "file" && name.startsWith("Est")) {
+        allFiles.push({ name });
+      } else if (entryHandle.kind === "directory") {
+        const subFiles = await collectAllEstimateFilesRecursive(entryHandle, maxDepth, currentDepth + 1);
+        allFiles.push(...subFiles);
+      }
+    }
+  } catch (err) {
+    // Silently handle permission errors on subdirectories
+  }
+  return allFiles;
+}
+
 function sentBadgeLabel(stamp) {
   if (!stamp) return "";
   const sent = new Date(stamp);
@@ -308,10 +340,22 @@ export default function QuoteList() {
   const [estimateSource, setEstimateSource] = useState("none");
 
   const loadEstimateFiles = async () => {
+    const ESTIMATE_COUNTER_KEY = "wrights_estimate_counter";
+    const ESTIMATE_START = 500;
+    
     if (isOneDriveGraphConfigured("estimate")) {
       const graphList = await listOneDriveFiles("estimate", "Est");
       if (graphList.ok) {
-        setEstimateFiles(graphList.files || []);
+        const files = graphList.files || [];
+        // Update counter for OneDrive files too
+        const maxNum = getMaxEstimateNumberFromFiles(files);
+        const stored = localStorage.getItem(ESTIMATE_COUNTER_KEY);
+        const baseline = ESTIMATE_START - 1;
+        const currentCounter = Number.isFinite(Number(stored)) ? Number(stored) : baseline;
+        if (maxNum >= currentCounter) {
+          localStorage.setItem(ESTIMATE_COUNTER_KEY, String(maxNum));
+        }
+        setEstimateFiles(files);
         setFolderName("OneDrive (Estimates)");
         setEstimateSource("onedrive");
         return;
@@ -338,7 +382,18 @@ export default function QuoteList() {
         updatedAt: file.lastModified,
       });
     }
-    entries.sort((a, b) => b.updatedAt - a.updatedAt);
+    entries.sort((a, b) => extractEstimateNumber(b.name) - extractEstimateNumber(a.name));
+    // Update counter by checking all files recursively (including subfolders like Paid, Archived)
+    const ESTIMATE_COUNTER_KEY = "wrights_estimate_counter";
+    const ESTIMATE_START = 500;
+    const allFilesRecursive = await collectAllEstimateFilesRecursive(handle);
+    const maxNum = getMaxEstimateNumberFromFiles(allFilesRecursive);
+    const stored = localStorage.getItem(ESTIMATE_COUNTER_KEY);
+    const baseline = ESTIMATE_START - 1;
+    const currentCounter = Number.isFinite(Number(stored)) ? Number(stored) : baseline;
+    if (maxNum >= currentCounter) {
+      localStorage.setItem(ESTIMATE_COUNTER_KEY, String(maxNum));
+    }
     setEstimateFiles(entries);
     setEstimateSource("local");
   };
