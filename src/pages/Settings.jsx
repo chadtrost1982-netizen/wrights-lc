@@ -38,6 +38,28 @@ export default function Settings() {
   const [travelTime, setTravelTime] = useState(null);
   const [autoSaveFolderName, setAutoSaveFolderName] = useState("");
   const [estimateFolderName, setEstimateFolderName] = useState("");
+  const [nextEstimateNumber, setNextEstimateNumber] = useState("");
+  const [nextInvoiceNumber, setNextInvoiceNumber] = useState("");
+
+  useEffect(() => {
+    // Load current counter values
+    const estCounter = localStorage.getItem("wrights_estimate_counter") || "500";
+    const invCounter = localStorage.getItem("wrights_invoice_counter") || "491";
+    setNextEstimateNumber(estCounter);
+    setNextInvoiceNumber(invCounter);
+  }, []);
+
+  const saveCounters = () => {
+    const estNum = parseInt(nextEstimateNumber, 10);
+    const invNum = parseInt(nextInvoiceNumber, 10);
+    if (Number.isFinite(estNum) && estNum > 0) {
+      localStorage.setItem("wrights_estimate_counter", String(estNum));
+    }
+    if (Number.isFinite(invNum) && invNum > 0) {
+      localStorage.setItem("wrights_invoice_counter", String(invNum));
+    }
+    alert("Counters updated!");
+  };
 
   useEffect(() => {
     const loadFolder = async () => {
@@ -167,6 +189,33 @@ export default function Settings() {
           />
           Include delivery inside container line
         </label>
+      </div>
+
+      <div className="settings-card">
+        <h3>Document Counters</h3>
+        <p style={{ marginBottom: "15px", opacity: 0.8, fontSize: "14px" }}>
+          Set the next estimate and invoice numbers. These will auto-increment with each new document.
+        </p>
+
+        <label>Next Estimate Number</label>
+        <input
+          type="number"
+          value={nextEstimateNumber}
+          onChange={(e) => setNextEstimateNumber(e.target.value)}
+          min="500"
+        />
+
+        <label>Next Invoice Number</label>
+        <input
+          type="number"
+          value={nextInvoiceNumber}
+          onChange={(e) => setNextInvoiceNumber(e.target.value)}
+          min="1"
+        />
+
+        <button className="btn-primary" onClick={saveCounters}>
+          Save Counters
+        </button>
       </div>
 
       <div className="settings-card">

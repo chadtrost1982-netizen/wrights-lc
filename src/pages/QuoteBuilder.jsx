@@ -78,10 +78,8 @@ function toNumber(v) {
 }
 
 function nextEstimateNumber() {
-  const baseline = ESTIMATE_START - 1;
   const stored = localStorage.getItem(ESTIMATE_COUNTER_KEY);
-  const parsed = Number(stored ?? String(baseline));
-  const current = Number.isFinite(parsed) ? Math.max(parsed, baseline) : baseline;
+  const current = Number.isFinite(Number(stored)) ? Number(stored) : ESTIMATE_START - 1;
   const next = current + 1;
   localStorage.setItem(ESTIMATE_COUNTER_KEY, String(next));
   return String(next);
