@@ -113,9 +113,9 @@ h2 {
 .brand-title {
   font-family: "Copperplate Gothic Bold", "Copperplate Gothic", "Copperplate", Georgia, serif;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: center;
-  gap: 16px;
+  gap: 4px;
   width: 100%;
   margin: 0 0 6rem;
 }
