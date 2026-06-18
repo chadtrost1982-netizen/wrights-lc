@@ -347,6 +347,19 @@ export async function downloadOneDriveFile(kind = "invoice", fileName = "") {
   return { ok: true, blob };
 }
 
+export async function downloadOneDriveFileById(kind = "invoice", itemId = "") {
+  if (!isOneDriveGraphConfigured(kind)) return { ok: false, reason: "not-configured" };
+  const token = await getAccessToken([fileScope]);
+  if (!token) return { ok: false, reason: "auth-failed" };
+  if (!itemId) return { ok: false, reason: "invalid-path" };
+
+  const url = `${graphEndpoint}/me/drive/items/${encodeURIComponent(itemId)}/content`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) return { ok: false, reason: "download-failed", status: res.status };
+  const blob = await res.blob();
+  return { ok: true, blob };
+}
+
 export async function deleteOneDriveFile(kind = "invoice", fileName = "") {
   if (!isOneDriveGraphConfigured(kind)) return { ok: false, reason: "not-configured" };
   const token = await getAccessToken([fileScope]);
@@ -356,6 +369,18 @@ export async function deleteOneDriveFile(kind = "invoice", fileName = "") {
   const encodedPath = encodeGraphPath(folder);
   const encodedName = encodeURIComponent(fileName);
   const url = `${graphEndpoint}/me/drive/root:/${encodedPath}/${encodedName}`;
+  const res = await fetch(url, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok && res.status !== 204) return { ok: false, reason: "delete-failed", status: res.status };
+  return { ok: true };
+}
+
+export async function deleteOneDriveFileById(kind = "invoice", itemId = "") {
+  if (!isOneDriveGraphConfigured(kind)) return { ok: false, reason: "not-configured" };
+  const token = await getAccessToken([fileScope]);
+  if (!token) return { ok: false, reason: "auth-failed" };
+  if (!itemId) return { ok: false, reason: "invalid-path" };
+
+  const url = `${graphEndpoint}/me/drive/items/${encodeURIComponent(itemId)}`;
   const res = await fetch(url, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
   if (!res.ok && res.status !== 204) return { ok: false, reason: "delete-failed", status: res.status };
   return { ok: true };

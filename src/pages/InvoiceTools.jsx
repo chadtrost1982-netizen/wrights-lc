@@ -14,6 +14,7 @@ import {
   listOneDriveFiles,
   queuePendingOneDriveUpload,
   downloadOneDriveFile,
+  downloadOneDriveFileById,
   sendGraphEmailWithAttachment,
   uploadBlobToOneDrive,
 } from "../utils/oneDriveGraph";
@@ -1049,7 +1050,9 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
       if (fileEntry?.file) {
         arrayBuffer = await fileEntry.file.arrayBuffer();
       } else if (graphMode) {
-        const result = await downloadOneDriveFile("invoice", fileEntry.name);
+        const result = fileEntry?.id
+          ? await downloadOneDriveFileById("invoice", fileEntry.id)
+          : await downloadOneDriveFile("invoice", fileEntry.name);
         if (result.ok) {
           arrayBuffer = await result.blob.arrayBuffer();
         } else {
@@ -1108,7 +1111,9 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
         window.open(url, "_blank", "noopener,noreferrer");
         setTimeout(() => URL.revokeObjectURL(url), 15000);
       } else if (graphMode) {
-        const result = await downloadOneDriveFile("invoice", fileName);
+        const result = typeof fileName === "object" && fileName?.id
+          ? await downloadOneDriveFileById("invoice", fileName.id)
+          : await downloadOneDriveFile("invoice", fileName);
         if (result.ok) {
           const url = URL.createObjectURL(result.blob);
           window.open(url, "_blank", "noopener,noreferrer");

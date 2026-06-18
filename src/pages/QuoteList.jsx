@@ -3,7 +3,9 @@ import { useNavigate } from "react-router-dom";
 import { loadEstimateDirectoryHandle, saveEstimateDirectoryHandle } from "../utils/autoSaveFolder";
 import {
   deleteOneDriveFile,
+  deleteOneDriveFileById,
   downloadOneDriveFile,
+  downloadOneDriveFileById,
   isOneDriveGraphConfigured,
   listOneDriveFiles,
   sendGraphEmailWithAttachment,
@@ -383,7 +385,10 @@ export default function QuoteList() {
   const deleteEstimateFile = async (name) => {
     if (estimateSource === "onedrive") {
       if (!confirm(`Delete ${name}?`)) return;
-      const result = await deleteOneDriveFile("estimate", name);
+      const entry = estimateFiles.find((item) => item.name === name) || null;
+      const result = entry?.id
+        ? await deleteOneDriveFileById("estimate", entry.id)
+        : await deleteOneDriveFile("estimate", name);
       if (!result.ok) {
         alert("Could not delete file from OneDrive.");
         return;
@@ -409,7 +414,10 @@ export default function QuoteList() {
     let inferredEmail = existing?.email || "";
     try {
       if (estimateSource === "onedrive") {
-        const dl = await downloadOneDriveFile("estimate", fileName);
+        const entry = estimateFiles.find((item) => item.name === fileName) || null;
+        const dl = entry?.id
+          ? await downloadOneDriveFileById("estimate", entry.id)
+          : await downloadOneDriveFile("estimate", fileName);
         if (dl.ok) {
           const file = new File([dl.blob], fileName, { type: dl.blob.type || "application/octet-stream" });
           const fileEmail = await extractCustomerEmailFromEstimateFile(file);
@@ -449,7 +457,10 @@ export default function QuoteList() {
     try {
       let file = null;
       if (estimateSource === "onedrive") {
-        const dl = await downloadOneDriveFile("estimate", emailFile);
+        const entry = estimateFiles.find((item) => item.name === emailFile) || null;
+        const dl = entry?.id
+          ? await downloadOneDriveFileById("estimate", entry.id)
+          : await downloadOneDriveFile("estimate", emailFile);
         if (!dl.ok) {
           alert("Could not load estimate from OneDrive.");
           setSending(false);
@@ -533,7 +544,10 @@ export default function QuoteList() {
     try {
       let file = null;
       if (estimateSource === "onedrive") {
-        const dl = await downloadOneDriveFile("estimate", fileName);
+        const entry = estimateFiles.find((item) => item.name === fileName) || null;
+        const dl = entry?.id
+          ? await downloadOneDriveFileById("estimate", entry.id)
+          : await downloadOneDriveFile("estimate", fileName);
         if (!dl.ok) {
           alert("Could not load estimate from OneDrive.");
           return;
