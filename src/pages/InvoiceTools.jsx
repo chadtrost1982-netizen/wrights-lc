@@ -232,6 +232,8 @@ const WHEEL_TO_NAME = "Alloy Wheel Repair";
 const WHEEL_TO_ADDRESS = "80 Hanlan Rd Unit #9";
 
 function buildPrintSheet(invoiceNumber, invoiceDate, headers, detailRows, subtotal, hst, total) {
+  const isContainerLayout = /container/i.test(String(headers?.[0] || "").trim()) || /container/i.test(String(headers?.[2] || "").trim());
+  const forLabelText = isContainerLayout ? "Container" : "Services Rendered";
   const aoa = [
     ["", "", "", "", "INVOICE"],
     [""],
@@ -242,7 +244,7 @@ function buildPrintSheet(invoiceNumber, invoiceDate, headers, detailRows, subtot
     ["Phone 416 889 5284 / 705 707 6064"],
     [""],
     ["To:", "", "For:"],
-    [BILL_TO_BLOCK[0], "", "Services Rendered"],
+    [BILL_TO_BLOCK[0], "", forLabelText],
     [BILL_TO_BLOCK[1], "", "Invoice"],
     [BILL_TO_BLOCK[2]],
     [""],
@@ -269,7 +271,7 @@ function buildPrintSheet(invoiceNumber, invoiceDate, headers, detailRows, subtot
   aoa.push(["", "", "HST: 811718162"]);
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws["!cols"] = [{ wch: 34 }, { wch: 2 }, { wch: 22 }, { wch: 9 }, { wch: 12 }, { wch: 12 }];
+  ws["!cols"] = [{ wch: 34 }, { wch: 2 }, { wch: isContainerLayout ? 16 : 22 }, { wch: 9 }, { wch: 12 }, { wch: 12 }];
   ws["!margins"] = { left: 0.5, right: 0.5, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 };
   ws["!merges"] = [
     { s: { r: 0, c: 4 }, e: { r: 0, c: 5 } },   // INVOICE title block
@@ -331,9 +333,10 @@ async function buildStyledExcelBlob(saveRows, options = {}) {
   const billAddress = String(options.billToAddress || "");
   const forLabel = String(options.forLabel || "Services Rendered");
   const notesText = String(options.notes || "");
+  const isContainerLayout = /container/i.test(forLabel);
 
   wsInv.columns = [
-    { width: 34 }, { width: 2 }, { width: 22 }, { width: 10 }, { width: 13 }, { width: 13 },
+    { width: 34 }, { width: 2 }, { width: isContainerLayout ? 16 : 22 }, { width: 10 }, { width: 13 }, { width: 13 },
   ];
   const titleRow = wsInv.addRow(["", "", "", "", "INVOICE"]).number;
   wsInv.addRow([""]);
@@ -346,7 +349,7 @@ async function buildStyledExcelBlob(saveRows, options = {}) {
   wsInv.addRow([""]);
   wsInv.addRow(["To:", "", "For:"]);
   const toForRow = wsInv.lastRow.number;
-  wsInv.addRow([billName, "", forLabel]);
+  wsInv.addRow([billName, "", isContainerLayout ? "Container" : forLabel]);
   const addressRow = wsInv.addRow([billAddress, "", "Invoice"]).number;
   wsInv.addRow([""]);
   wsInv.addRow(["DESCRIPTION", "", "", "HR/QTY", "RATE", "AMOUNT"]);
@@ -781,6 +784,8 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
       : invoiceType === "wheel"
         ? "Wheel Repair Services"
         : "Services Rendered");
+    const isContainerLayout = /container/i.test(forLabel);
+    const forLabelText = isContainerLayout ? "Container" : forLabel;
     const mergedNotes = hasDisposalContent
       ? [String(invoiceNotes || "").trim(), DISPOSAL_POLICY_TEXT].filter(Boolean).join("\n\n")
       : String(invoiceNotes || "");
@@ -905,15 +910,15 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
     y += 28;
     doc.setFont("helvetica", "bold");
     doc.text("To:", left, y);
-    doc.text("For:", left + 230, y);
+    doc.text("For:", left + (isContainerLayout ? 200 : 230), y);
     y += 16;
     doc.setFont("helvetica", "bold");
     doc.text(String(toName || "Customer"), left, y);
-    doc.text(forLabel, left + 230, y);
+    doc.text(forLabelText, left + (isContainerLayout ? 200 : 230), y);
     y += 14;
-    const addressLines = doc.splitTextToSize(String(toAddress || ""), 210);
+    const addressLines = doc.splitTextToSize(String(toAddress || ""), isContainerLayout ? 180 : 210);
     doc.text(addressLines.length ? addressLines : [""], left, y);
-    doc.text("Invoice", left + 230, y);
+    doc.text(isContainerLayout ? "Container" : "Invoice", left + (isContainerLayout ? 200 : 230), y);
     if (addressLines.length > 1) {
       y += (addressLines.length - 1) * 12;
     }
