@@ -125,6 +125,11 @@ h2 {
   margin-top: 12px;
 }
 
+.brand-logo {
+  height: 135px;
+  width: auto;
+}
+
 .dash-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
