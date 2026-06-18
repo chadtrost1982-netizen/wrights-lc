@@ -1020,7 +1020,15 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
 
     let pdfSavedByDownload = false;
     if (!autoSavedPdf.ok) {
-      doc.save(pdfName);
+      const pdfUrl = URL.createObjectURL(pdfBlob);
+      const pdfLink = document.createElement("a");
+      pdfLink.href = pdfUrl;
+      pdfLink.download = pdfName;
+      pdfLink.rel = "noopener noreferrer";
+      document.body.appendChild(pdfLink);
+      pdfLink.click();
+      pdfLink.remove();
+      setTimeout(() => URL.revokeObjectURL(pdfUrl), 20000);
       pdfSavedByDownload = true;
     }
     if (!autoSavedExcel.ok) {
