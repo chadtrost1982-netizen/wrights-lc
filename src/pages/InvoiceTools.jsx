@@ -853,6 +853,8 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
       : invoiceType === "wheel"
         ? "Wheel Repair Services"
         : "Services Rendered");
+    const isContainerLayout = /container/i.test(forLabel);
+    const forLabelText = isContainerLayout ? "Container" : forLabel;
     const mergedNotes = hasDisposalContent
       ? [String(invoiceNotes || "").trim(), DISPOSAL_POLICY_TEXT].filter(Boolean).join("\n\n")
       : String(invoiceNotes || "");
