@@ -181,6 +181,7 @@ export default function QuoteBuilder() {
     const wsEst = wb.addWorksheet("Estimate");
     const wsInfo = wb.addWorksheet("Info");
     const wsData = wb.addWorksheet("Data");
+    const isContainerLayout = Boolean(quote.container);
     try {
       const logoDataUrl = await getLogoDataUrl();
       if (logoDataUrl) {
@@ -194,7 +195,7 @@ export default function QuoteBuilder() {
       // Keep export working even if logo fails to load.
     }
 
-    wsEst.columns = [{ width: 34 }, { width: 2 }, { width: 22 }, { width: 10 }, { width: 13 }, { width: 13 }];
+    wsEst.columns = [{ width: 34 }, { width: 2 }, { width: isContainerLayout ? 16 : 22 }, { width: 10 }, { width: 13 }, { width: 13 }];
     wsEst.addRow(["", "", "", "", ""]);
     wsEst.addRow([""]);
     wsEst.addRow(["DISPOSAL SOLUTIONS", "", "", "", ""]);
@@ -213,7 +214,9 @@ export default function QuoteBuilder() {
         ? "Disposal Bin Services"
         : quote.estimateType === "services"
           ? "Services Rendered"
-        : "Container Services",
+        : isContainerLayout
+          ? "Container"
+          : "Container Services",
     ]);
     const customerAddressRow = wsEst.addRow([quote.customer?.address || "", "", "Estimate"]).number;
     wsEst.addRow([quote.customer?.phone || ""]);
@@ -417,6 +420,24 @@ export default function QuoteBuilder() {
         r.amount,
       ]);
     });
+
+    wsEst.pageSetup = {
+      orientation: "portrait",
+      paperSize: 1,
+      fitToPage: true,
+      fitToWidth: 1,
+      fitToHeight: 0,
+      horizontalCentered: false,
+      verticalCentered: false,
+    };
+    wsEst.pageMargins = {
+      left: 0.35,
+      right: 0.35,
+      top: 0.35,
+      bottom: 0.35,
+      header: 0.2,
+      footer: 0.2,
+    };
 
     const buf = await wb.xlsx.writeBuffer();
     return new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
