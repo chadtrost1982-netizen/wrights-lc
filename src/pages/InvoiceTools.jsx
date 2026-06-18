@@ -1104,16 +1104,18 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
     }
   };
 
-  const viewFolderFile = async (fileName) => {
+  const viewFolderFile = async (fileEntry) => {
     try {
-      if (typeof fileName === "object" && fileName?.file) {
-        const url = URL.createObjectURL(fileName.file);
+      if (fileEntry?.webUrl && graphMode) {
+        window.open(fileEntry.webUrl, "_blank", "noopener,noreferrer");
+      } else if (fileEntry?.file) {
+        const url = URL.createObjectURL(fileEntry.file);
         window.open(url, "_blank", "noopener,noreferrer");
         setTimeout(() => URL.revokeObjectURL(url), 15000);
       } else if (graphMode) {
-        const result = typeof fileName === "object" && fileName?.id
-          ? await downloadOneDriveFileById("invoice", fileName.id)
-          : await downloadOneDriveFile("invoice", fileName);
+        const result = fileEntry?.id
+          ? await downloadOneDriveFileById("invoice", fileEntry.id)
+          : await downloadOneDriveFile("invoice", fileEntry.name || fileEntry);
         if (result.ok) {
           const url = URL.createObjectURL(result.blob);
           window.open(url, "_blank", "noopener,noreferrer");
@@ -1128,7 +1130,7 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
           alert("Auto-save folder is not configured.");
           return;
         }
-        const fileHandle = await folderHandle.getFileHandle(fileName);
+        const fileHandle = await folderHandle.getFileHandle(fileEntry.name || fileEntry);
         const file = await fileHandle.getFile();
         const url = URL.createObjectURL(file);
         window.open(url, "_blank", "noopener,noreferrer");
