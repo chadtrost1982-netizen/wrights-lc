@@ -931,9 +931,9 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
       const tableLeft = left;
       const tableRight = right;
       const rowHeight = 18;
-      const qtyX = tableLeft + 330;
-      const rateX = tableLeft + 390;
-      const amountX = tableLeft + 450;
+      const qtyX = tableLeft + 300;
+      const rateX = tableLeft + 360;
+      const amountX = tableLeft + 420;
 
       doc.setFont("helvetica", "bold");
       doc.setFontSize(10);
@@ -953,14 +953,14 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
           doc.addPage();
           y = 72;
         }
-        const wrappedDescription = doc.splitTextToSize(String(line.description || ""), 315);
+        const wrappedDescription = doc.splitTextToSize(String(line.description || ""), 285);
         const descriptionLines = Array.isArray(wrappedDescription) && wrappedDescription.length
           ? wrappedDescription
           : [""];
         doc.text(descriptionLines, tableLeft, y);
-        doc.text(String(toNumber(line.qty) || ""), qtyX + 28, y, { align: "right" });
-        doc.text(formatCurrency(toNumber(line.rate)), rateX + 45, y, { align: "right" });
-        doc.text(formatCurrency(toNumber(line.amount)), amountX + 55, y, { align: "right" });
+        doc.text(String(toNumber(line.qty) || ""), qtyX + 24, y, { align: "right" });
+        doc.text(formatCurrency(toNumber(line.rate)), rateX + 40, y, { align: "right" });
+        doc.text(formatCurrency(toNumber(line.amount)), amountX + 45, y, { align: "right" });
         y += Math.max(rowHeight, descriptionLines.length * 12);
       });
 
@@ -968,15 +968,15 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
       doc.setLineWidth(0.5);
       doc.line(amountX - 18, y - 12, amountX + 62, y - 12);
       doc.setFont("helvetica", "normal");
-      doc.text("SUB TOTAL", amountX - 52, y, { align: "right" });
-      doc.text(formatCurrency(printData.subtotal), amountX + 55, y, { align: "right" });
+      doc.text("SUB TOTAL", amountX - 48, y, { align: "right" });
+      doc.text(formatCurrency(printData.subtotal), amountX + 45, y, { align: "right" });
       y += 16;
-      doc.text("HST", amountX - 52, y, { align: "right" });
-      doc.text(formatCurrency(printData.hst), amountX + 55, y, { align: "right" });
+      doc.text("HST", amountX - 48, y, { align: "right" });
+      doc.text(formatCurrency(printData.hst), amountX + 45, y, { align: "right" });
       y += 16;
       doc.setFont("helvetica", "bold");
-      doc.text("TOTAL", amountX - 52, y, { align: "right" });
-      doc.text(formatCurrency(printData.total), amountX + 55, y, { align: "right" });
+      doc.text("TOTAL", amountX - 48, y, { align: "right" });
+      doc.text(formatCurrency(printData.total), amountX + 45, y, { align: "right" });
 
       y += 36;
       doc.setFont("helvetica", "normal");
