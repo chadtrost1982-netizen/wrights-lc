@@ -1012,6 +1012,10 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
       printTotal: printData.total,
     });
 
+    const previewUrl = URL.createObjectURL(pdfBlob);
+    const previewWindow = window.open(previewUrl, "_blank", "noopener,noreferrer");
+    setTimeout(() => URL.revokeObjectURL(previewUrl), 20000);
+
     let autoSavedPdf = await uploadBlobToOneDrive(pdfName, pdfBlob, "invoice");
     if (!autoSavedPdf.ok) autoSavedPdf = await writeBlobToAutoSaveFolder(pdfName, pdfBlob);
 
@@ -1030,6 +1034,9 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
       pdfLink.remove();
       setTimeout(() => URL.revokeObjectURL(pdfUrl), 20000);
       pdfSavedByDownload = true;
+    }
+    if (!previewWindow) {
+      // Popup blockers can prevent previewing, but the download/save fallback above still runs.
     }
     if (!autoSavedExcel.ok) {
       const url = URL.createObjectURL(excelBlob);
