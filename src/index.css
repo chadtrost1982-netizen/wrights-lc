@@ -30,7 +30,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  overflow-x: auto;
+  overflow-x: hidden;
 }
 
 html {
@@ -44,17 +44,20 @@ html {
   width: 100%;
   max-width: none;
   margin: 0;
-  min-width: 1280px;
+  min-width: 0;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
   padding: 20px;
   box-sizing: border-box;
-  overflow-x: auto;
+  overflow-x: hidden;
 }
 
 .page {
-  min-width: 1240px;
+  width: 100%;
+  min-width: 0;
+  max-width: 1440px;
+  margin: 0 auto;
 }
 
 /* --------------------------------------------------
@@ -91,9 +94,9 @@ h2 {
    DASHBOARD
 -------------------------------------------------- */
 .dashboard {
-  padding: 40px;
+  padding: 40px 0;
   background: #111;
-  min-height: 100vh;
+  min-height: auto;
   color: var(--accent);
 }
 
@@ -113,9 +116,9 @@ h2 {
 
 .dash-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 28px;
-  max-width: 1000px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 20px;
+  max-width: 100%;
   margin: 0 auto;
 }
 
@@ -161,15 +164,16 @@ h2 {
   border-bottom: 2px solid #333;
   display: flex;
   justify-content: center;
-  gap: 28px;
-  margin-bottom: 40px;
+  gap: 14px 20px;
+  flex-wrap: wrap;
+  margin-bottom: 28px;
 }
 
 .top-nav a {
   color: var(--accent);
   text-decoration: none;
   font-weight: 600;
-  font-size: 18px;
+  font-size: 17px;
   padding: 6px 10px;
   border-bottom: 2px solid transparent;
   transition: 0.2s ease-out;
@@ -291,9 +295,9 @@ h2 {
 .mod-grid,
 .preset-list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 24px;
-  max-width: 1000px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 20px;
+  max-width: 100%;
   margin: 0 auto;
 }
 
@@ -338,7 +342,7 @@ h2 {
    ACCORDION (PRESETS PAGE)
 -------------------------------------------------- */
 .accordion {
-  max-width: 900px;
+  max-width: 100%;
   margin: 0 auto;
 }
 
@@ -395,7 +399,7 @@ h2 {
 .price {
   font-weight: 700;
   margin-left: auto;
-  min-width: 130px;
+  min-width: 110px;
   text-align: right;
   padding-right: 10px;
 }
@@ -416,6 +420,8 @@ h2 {
   padding: 20px;
   border-radius: 8px;
   margin-bottom: 20px;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .settings-card h3 {
@@ -849,6 +855,73 @@ h2 {
 
 
 @media (max-width: 820px) {
+  #root {
+    padding: 14px;
+  }
+
+  .page-title {
+    font-size: clamp(22px, 5vw, 28px);
+    margin-bottom: 20px;
+  }
+
+  .dashboard {
+    padding: 20px 0 28px;
+  }
+
+  .dash-title {
+    font-size: clamp(24px, 5.8vw, 32px);
+    margin-bottom: 24px;
+  }
+
+  .top-nav {
+    justify-content: flex-start;
+    margin-bottom: 20px;
+    padding: 10px 12px;
+  }
+
+  .top-nav a {
+    flex: 1 1 calc(50% - 10px);
+    text-align: center;
+    border: 1px solid #333;
+    border-radius: 999px;
+    padding: 9px 12px;
+    font-size: 15px;
+  }
+
+  .dash-grid {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 14px;
+  }
+
+  .mod-grid,
+  .preset-list {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 14px;
+  }
+
+  .actions {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-card,
+  .accordion-section,
+  .mod-card,
+  .preset-card {
+    padding: 16px;
+  }
+
+  .accordion-item {
+    gap: 6px;
+    align-items: flex-start;
+  }
+
+  .price,
+  .stock {
+    min-width: 0;
+    padding-right: 0;
+    text-align: left;
+  }
+
   .quote-builder-layout {
     grid-template-columns: 1fr;
   }
@@ -857,10 +930,115 @@ h2 {
     position: static;
   }
 
+  .quote-builder-right .btn-secondary {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .quote-builder-left .customer-row,
+  .quote-builder-left .customer-row.compact-row {
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
+
+  .quote-builder-left .template-title-select {
+    max-width: 100%;
+    width: 100%;
+  }
+
+  .invoice-tools-page .wheel-editor-card {
+    padding: 16px;
+  }
+
+  .invoice-tools-page .wheel-lines-table th,
+  .invoice-tools-page .wheel-lines-table td {
+    padding: 8px 10px !important;
+  }
+
+  .invoice-tools-page .wheel-lines-table input {
+    min-height: 34px;
+    font-size: 16px;
+  }
+
+  .invoice-tools-page .win-btn,
+  .invoice-tools-page .win-btn-secondary {
+    width: 100%;
+  }
+
   .quote-map-skeleton {
     min-height: 280px;
   }
 
+}
+
+@media (max-width: 600px) {
+  #root {
+    padding: 10px;
+  }
+
+  h1 {
+    font-size: clamp(28px, 8vw, 36px);
+  }
+
+  h2 {
+    font-size: clamp(22px, 6vw, 28px);
+  }
+
+  .top-nav {
+    gap: 8px;
+    padding: 10px;
+  }
+
+  .top-nav a {
+    flex-basis: 100%;
+    width: 100%;
+  }
+
+  .dash-grid,
+  .mod-grid,
+  .preset-list {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-card {
+    padding: 14px;
+  }
+
+  .accordion-item {
+    flex-direction: column;
+    padding: 10px 0;
+  }
+
+  .accordion-header {
+    font-size: 18px;
+    padding: 14px;
+  }
+
+  .price,
+  .stock {
+    width: 100%;
+  }
+
+  .modal-content {
+    padding: 18px;
+    max-width: calc(100vw - 24px);
+    box-sizing: border-box;
+  }
+
+  .quote-map-skeleton {
+    min-height: 220px;
+    padding: 16px;
+  }
+
+  .skeleton-sit-illustration {
+    width: 108px;
+    height: 108px;
+  }
+
+  .skeleton-sit-illustration svg {
+    width: 96px;
+    height: 96px;
+  }
 }
 
 .clear-confirm-modal {
