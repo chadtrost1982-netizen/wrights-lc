@@ -73,55 +73,74 @@ export default function QuoteView() {
   const exportPDF = () => {
     if (!normalized) return;
 
-    const doc = new jsPDF();
-    doc.setFontSize(18);
-    doc.text("Wrights L.C. Quote", 14, 20);
+    try {
+      const doc = new jsPDF();
+      doc.setFontSize(18);
+      doc.text("Wrights L.C. Quote", 14, 20);
 
-    doc.setFontSize(12);
-    doc.text(`Date: ${new Date(normalized.date).toLocaleString()}`, 14, 30);
+      doc.setFontSize(12);
+      doc.text(`Date: ${new Date(normalized.date).toLocaleString()}`, 14, 30);
 
-    doc.setFontSize(14);
-    doc.text("Customer Information", 14, 45);
-    doc.setFontSize(12);
-    doc.text(`Name: ${customerFullName(normalized.customer)}`, 14, 55);
-    doc.text(`Phone: ${normalized.customer?.phone || ""}`, 14, 62);
-    doc.text(`Address: ${normalized.customer?.address || ""}`, 14, 69);
-    doc.text(`Distance: ${normalized.customer?.distance || ""} km`, 14, 76);
+      doc.setFontSize(14);
+      doc.text("Customer Information", 14, 45);
+      doc.setFontSize(12);
+      doc.text(`Name: ${customerFullName(normalized.customer)}`, 14, 55);
+      doc.text(`Phone: ${normalized.customer?.phone || ""}`, 14, 62);
+      doc.text(`Address: ${normalized.customer?.address || ""}`, 14, 69);
+      doc.text(`Distance: ${normalized.customer?.distance || ""} km`, 14, 76);
 
-    doc.setFontSize(14);
-    doc.text("Container", 14, 92);
-    doc.setFontSize(12);
-    doc.text(`Name: ${normalized.container?.name || "N/A"}`, 14, 102);
-    doc.text(`Qty: ${normalized.container?.qty || 1}`, 14, 109);
-    doc.text(`Price: ${formatCurrency(normalized.containerPrice)}`, 14, 116);
+      doc.setFontSize(14);
+      doc.text("Container", 14, 92);
+      doc.setFontSize(12);
+      doc.text(`Name: ${normalized.container?.name || "N/A"}`, 14, 102);
+      doc.text(`Qty: ${normalized.container?.qty || 1}`, 14, 109);
+      doc.text(`Price: ${formatCurrency(normalized.containerPrice)}`, 14, 116);
 
-    doc.setFontSize(14);
-    doc.text("Modifications", 14, 132);
-    doc.setFontSize(12);
+      doc.setFontSize(14);
+      doc.text("Modifications", 14, 132);
+      doc.setFontSize(12);
 
-    if (normalized.mods.length === 0) {
-      doc.text("No modifications selected.", 14, 142);
-    } else {
-      let y = 142;
-      normalized.mods.forEach((m) => {
-        const p = asNumber(m.finalPrice ?? m.price);
-        doc.text(`${m.name} - ${formatCurrency(p)}`, 14, y);
-        y += 7;
-      });
+      if (normalized.mods.length === 0) {
+        doc.text("No modifications selected.", 14, 142);
+      } else {
+        let y = 142;
+        normalized.mods.forEach((m) => {
+          const p = asNumber(m.finalPrice ?? m.price);
+          doc.text(`${m.name} - ${formatCurrency(p)}`, 14, y);
+          y += 7;
+        });
+      }
+
+      doc.setFontSize(14);
+      doc.text("Totals", 14, 180);
+      doc.setFontSize(12);
+      doc.text(`Container: ${formatCurrency(normalized.containerPrice)}`, 14, 190);
+      doc.text(`Mods Total: ${formatCurrency(normalized.modsTotal)}`, 14, 197);
+      doc.text(`Delivery: ${formatCurrency(normalized.delivery)}`, 14, 204);
+      doc.text(`Subtotal: ${formatCurrency(normalized.subtotal)}`, 14, 211);
+      doc.text(`HST (13%): ${formatCurrency(normalized.hst)}`, 14, 218);
+      doc.setFontSize(14);
+      doc.text(`Final Total: ${formatCurrency(normalized.finalTotal)}`, 14, 231);
+
+      const pdfBlob = doc.output("blob");
+      const fileName = `Quote-${customerFullName(normalized.customer) || "Customer"}.pdf`;
+      const url = URL.createObjectURL(pdfBlob);
+      const opened = window.open(url, "_blank", "noopener,noreferrer");
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName;
+      link.rel = "noopener noreferrer";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 20000);
+
+      if (!opened) {
+        // If popup blocking prevents opening, the download click above still provides a fallback.
+      }
+    } catch (err) {
+      alert(`Could not export PDF. ${err?.message || "Unknown error"}`);
     }
-
-    doc.setFontSize(14);
-    doc.text("Totals", 14, 180);
-    doc.setFontSize(12);
-    doc.text(`Container: ${formatCurrency(normalized.containerPrice)}`, 14, 190);
-    doc.text(`Mods Total: ${formatCurrency(normalized.modsTotal)}`, 14, 197);
-    doc.text(`Delivery: ${formatCurrency(normalized.delivery)}`, 14, 204);
-    doc.text(`Subtotal: ${formatCurrency(normalized.subtotal)}`, 14, 211);
-    doc.text(`HST (13%): ${formatCurrency(normalized.hst)}`, 14, 218);
-    doc.setFontSize(14);
-    doc.text(`Final Total: ${formatCurrency(normalized.finalTotal)}`, 14, 231);
-
-    doc.save(`Quote-${customerFullName(normalized.customer) || "Customer"}.pdf`);
   };
 
   if (!normalized) return <div className="page"><p>Loading quote...</p></div>;
