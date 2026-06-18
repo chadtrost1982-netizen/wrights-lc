@@ -830,240 +830,239 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
   };
 
   const exportPdf = async () => {
-    const saveRows = getRowsForSave();
-    if (!saveRows.length) return;
-
-    if (isWheelStyle) {
-      learnWheelValues(wheelLines);
-    }
-
-    const baseInvoiceName = buildInvoiceBaseName(saveRows, wheelLines);
-    const pdfName = `${baseInvoiceName}.pdf`;
-    const excelName = `${baseInvoiceName}.xlsx`;
-    const invoiceNumber = (baseInvoiceName.match(/^Inv\s+(\d+)/i) || [])[1] || "";
-    const invoiceDate = new Date().toLocaleDateString("en-CA", { year: "numeric", month: "long", day: "numeric" });
-    const printData = buildPrintRowsAndTotals(saveRows);
-    const toName = invoiceType === "wheel"
-      ? WHEEL_TO_NAME
-      : (billToName || inferCustomerFromWheel(wheelLines));
-    const toAddress = invoiceType === "wheel" ? WHEEL_TO_ADDRESS : billToAddress;
-    const hasDisposalContent = printData.lines.some((l) => looksLikeDisposalLine(l.description));
-    const forLabel = draftForLabel || (hasDisposalContent
-      ? "Disposal Bin Services"
-      : invoiceType === "wheel"
-        ? "Wheel Repair Services"
-        : "Services Rendered");
-    const isContainerLayout = /container/i.test(forLabel);
-    const forLabelText = isContainerLayout ? "Container" : forLabel;
-    const mergedNotes = hasDisposalContent
-      ? [String(invoiceNotes || "").trim(), DISPOSAL_POLICY_TEXT].filter(Boolean).join("\n\n")
-      : String(invoiceNotes || "");
-
-    const doc = new jsPDF({ unit: "pt", format: "letter" });
-    const left = 70;
-    const right = 540;
-    let y = 72;
-
     try {
-      const logoDataUrl = await getLogoDataUrl();
-      if (logoDataUrl) {
-        doc.addImage(logoDataUrl, "PNG", left, y - 20, 120, 40);
+      const saveRows = getRowsForSave();
+      if (!saveRows.length) return;
+
+      if (isWheelStyle) {
+        learnWheelValues(wheelLines);
       }
-    } catch {
-      // Keep PDF export working even if logo fails to load.
-    }
 
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(24);
-    doc.setTextColor(58, 74, 94);
-    doc.text("INVOICE", right - 10, y, { align: "right" });
+      const baseInvoiceName = buildInvoiceBaseName(saveRows, wheelLines);
+      const pdfName = `${baseInvoiceName}.pdf`;
+      const excelName = `${baseInvoiceName}.xlsx`;
+      const invoiceNumber = (baseInvoiceName.match(/^Inv\s+(\d+)/i) || [])[1] || "";
+      const invoiceDate = new Date().toLocaleDateString("en-CA", { year: "numeric", month: "long", day: "numeric" });
+      const printData = buildPrintRowsAndTotals(saveRows);
+      const toName = invoiceType === "wheel"
+        ? WHEEL_TO_NAME
+        : (billToName || inferCustomerFromWheel(wheelLines));
+      const toAddress = invoiceType === "wheel" ? WHEEL_TO_ADDRESS : billToAddress;
+      const hasDisposalContent = printData.lines.some((l) => looksLikeDisposalLine(l.description));
+      const forLabel = draftForLabel || (hasDisposalContent
+        ? "Disposal Bin Services"
+        : invoiceType === "wheel"
+          ? "Wheel Repair Services"
+          : "Services Rendered");
+      const isContainerLayout = /container/i.test(forLabel);
+      const forLabelText = isContainerLayout ? "Container" : forLabel;
+      const mergedNotes = hasDisposalContent
+        ? [String(invoiceNotes || "").trim(), DISPOSAL_POLICY_TEXT].filter(Boolean).join("\n\n")
+        : String(invoiceNotes || "");
 
-    y += 40;
-    doc.setTextColor(0, 0, 0);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(14);
-    doc.text("DISPOSAL SOLUTIONS", left, y);
-    doc.text("o/a Wrights L.C.", left, y + 14);
-    doc.text("4805 8th Line", left, y + 28);
-    doc.text("Beeton, ON, L0G 1A0", left, y + 42);
-    doc.text("Phone 416 889 5284 / 705 707 6064", left, y + 56);
-    doc.text("www.DisposalSolutions.ca", left, y + 70);
+      const doc = new jsPDF({ unit: "pt", format: "letter" });
+      const left = 70;
+      const right = 540;
+      let y = 72;
 
-    doc.setFontSize(10);
-    y += 70;
-
-    let metaY = 126;
-    const invoicePrefix = "Invoice #: ";
-    const invoiceValue = String(invoiceNumber || "");
-    const valueWidth = doc.getTextWidth(invoiceValue);
-    doc.setFont("helvetica", "normal");
-    doc.text(invoiceValue, right - 10, metaY, { align: "right" });
-    doc.setFont("helvetica", "bold");
-    doc.text(invoicePrefix, right - 10 - valueWidth, metaY, { align: "right" });
-    metaY += 16;
-    const datePrefix = "Date: ";
-    const dateValue = String(invoiceDate || "");
-    const dateValueWidth = doc.getTextWidth(dateValue);
-    doc.setFont("helvetica", "normal");
-    doc.text(dateValue, right - 10, metaY, { align: "right" });
-    doc.setFont("helvetica", "bold");
-    doc.text(datePrefix, right - 10 - dateValueWidth, metaY, { align: "right" });
-
-    y += 28;
-    doc.setFont("helvetica", "bold");
-    doc.text("To:", left, y);
-    doc.text("For:", left + (isContainerLayout ? 200 : 230), y);
-    y += 16;
-    doc.setFont("helvetica", "bold");
-    doc.text(String(toName || "Customer"), left, y);
-    doc.text(forLabelText, left + (isContainerLayout ? 200 : 230), y);
-    y += 14;
-    const addressLines = doc.splitTextToSize(String(toAddress || ""), isContainerLayout ? 180 : 210);
-    doc.text(addressLines.length ? addressLines : [""], left, y);
-    doc.text(isContainerLayout ? "Container" : "Invoice", left + (isContainerLayout ? 200 : 230), y);
-    if (addressLines.length > 1) {
-      y += (addressLines.length - 1) * 12;
-    }
-    if (toAddress) y += 14;
-
-    y += 28;
-    const tableLeft = left;
-    const tableRight = right;
-    const tableWidth = tableRight - tableLeft;
-    const rowHeight = 18;
-    const qtyX = tableLeft + 330;
-    const rateX = tableLeft + 390;
-    const amountX = tableLeft + 450;
-
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(10);
-    doc.text("DESCRIPTION", tableLeft, y);
-    doc.text("HR/QTY", qtyX, y);
-    doc.text("RATE", rateX, y);
-    doc.text("AMOUNT", amountX, y);
-    y += 10;
-    doc.setLineWidth(0.5);
-    doc.line(tableLeft, y, tableRight, y);
-    y += 12;
-
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    printData.lines.forEach((line) => {
-      if (y > 680) {
-        doc.addPage();
-        y = 72;
+      try {
+        const logoDataUrl = await getLogoDataUrl();
+        if (logoDataUrl) {
+          doc.addImage(logoDataUrl, "PNG", left, y - 20, 120, 40);
+        }
+      } catch {
+        // Keep PDF export working even if logo fails to load.
       }
-      const wrappedDescription = doc.splitTextToSize(String(line.description || ""), 315);
-      const descriptionLines = Array.isArray(wrappedDescription) && wrappedDescription.length
-        ? wrappedDescription
-        : [""];
-      doc.text(descriptionLines, tableLeft, y);
-      doc.text(String(toNumber(line.qty) || ""), qtyX + 28, y, { align: "right" });
-      doc.text(formatCurrency(toNumber(line.rate)), rateX + 45, y, { align: "right" });
-      doc.text(formatCurrency(toNumber(line.amount)), amountX + 55, y, { align: "right" });
-      y += Math.max(rowHeight, descriptionLines.length * 12);
-    });
 
-    y += 16;
-    doc.setLineWidth(0.5);
-    doc.line(amountX - 18, y - 12, amountX + 62, y - 12);
-    doc.setFont("helvetica", "normal");
-    doc.text("SUB TOTAL", amountX - 52, y, { align: "right" });
-    doc.text(formatCurrency(printData.subtotal), amountX + 55, y, { align: "right" });
-    y += 16;
-    doc.text("HST", amountX - 52, y, { align: "right" });
-    doc.text(formatCurrency(printData.hst), amountX + 55, y, { align: "right" });
-    y += 16;
-    doc.setFont("helvetica", "bold");
-    doc.text("TOTAL", amountX - 52, y, { align: "right" });
-    doc.text(formatCurrency(printData.total), amountX + 55, y, { align: "right" });
-
-    y += 36;
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
-    if (mergedNotes && mergedNotes.trim()) {
       doc.setFont("helvetica", "bold");
-      doc.text("Notes:", left, y);
-      y += 14;
+      doc.setFontSize(24);
+      doc.setTextColor(58, 74, 94);
+      doc.text("INVOICE", right - 10, y, { align: "right" });
+
+      y += 40;
+      doc.setTextColor(0, 0, 0);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(14);
+      doc.text("DISPOSAL SOLUTIONS", left, y);
+      doc.text("o/a Wrights L.C.", left, y + 14);
+      doc.text("4805 8th Line", left, y + 28);
+      doc.text("Beeton, ON, L0G 1A0", left, y + 42);
+      doc.text("Phone 416 889 5284 / 705 707 6064", left, y + 56);
+      doc.text("www.DisposalSolutions.ca", left, y + 70);
+
+      doc.setFontSize(10);
+      y += 70;
+
+      let metaY = 126;
+      const invoicePrefix = "Invoice #: ";
+      const invoiceValue = String(invoiceNumber || "");
+      const valueWidth = doc.getTextWidth(invoiceValue);
       doc.setFont("helvetica", "normal");
-      const noteLines = doc.splitTextToSize(String(mergedNotes).trim(), 420);
-      noteLines.slice(0, 18).forEach((line) => {
-        doc.text(line, left, y);
-        y += 12;
+      doc.text(invoiceValue, right - 10, metaY, { align: "right" });
+      doc.setFont("helvetica", "bold");
+      doc.text(invoicePrefix, right - 10 - valueWidth, metaY, { align: "right" });
+      metaY += 16;
+      const datePrefix = "Date: ";
+      const dateValue = String(invoiceDate || "");
+      const dateValueWidth = doc.getTextWidth(dateValue);
+      doc.setFont("helvetica", "normal");
+      doc.text(dateValue, right - 10, metaY, { align: "right" });
+      doc.setFont("helvetica", "bold");
+      doc.text(datePrefix, right - 10 - dateValueWidth, metaY, { align: "right" });
+
+      y += 28;
+      doc.setFont("helvetica", "bold");
+      doc.text("To:", left, y);
+      doc.text("For:", left + (isContainerLayout ? 200 : 230), y);
+      y += 16;
+      doc.setFont("helvetica", "bold");
+      doc.text(String(toName || "Customer"), left, y);
+      doc.text(forLabelText, left + (isContainerLayout ? 200 : 230), y);
+      y += 14;
+      const addressLines = doc.splitTextToSize(String(toAddress || ""), isContainerLayout ? 180 : 210);
+      doc.text(addressLines.length ? addressLines : [""], left, y);
+      doc.text(isContainerLayout ? "Container" : "Invoice", left + (isContainerLayout ? 200 : 230), y);
+      if (addressLines.length > 1) {
+        y += (addressLines.length - 1) * 12;
+      }
+      if (toAddress) y += 14;
+
+      y += 28;
+      const tableLeft = left;
+      const tableRight = right;
+      const rowHeight = 18;
+      const qtyX = tableLeft + 330;
+      const rateX = tableLeft + 390;
+      const amountX = tableLeft + 450;
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      doc.text("DESCRIPTION", tableLeft, y);
+      doc.text("HR/QTY", qtyX, y);
+      doc.text("RATE", rateX, y);
+      doc.text("AMOUNT", amountX, y);
+      y += 10;
+      doc.setLineWidth(0.5);
+      doc.line(tableLeft, y, tableRight, y);
+      y += 12;
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      printData.lines.forEach((line) => {
+        if (y > 680) {
+          doc.addPage();
+          y = 72;
+        }
+        const wrappedDescription = doc.splitTextToSize(String(line.description || ""), 315);
+        const descriptionLines = Array.isArray(wrappedDescription) && wrappedDescription.length
+          ? wrappedDescription
+          : [""];
+        doc.text(descriptionLines, tableLeft, y);
+        doc.text(String(toNumber(line.qty) || ""), qtyX + 28, y, { align: "right" });
+        doc.text(formatCurrency(toNumber(line.rate)), rateX + 45, y, { align: "right" });
+        doc.text(formatCurrency(toNumber(line.amount)), amountX + 55, y, { align: "right" });
+        y += Math.max(rowHeight, descriptionLines.length * 12);
       });
-      y += 4;
-    }
-    y += 16;
-    doc.setFont("helvetica", "bold");
-    doc.text("Thank you for your business!", left + 135, y);
-    y += 16;
-    doc.text("HST: 811718162", left + 170, y);
 
-    const pdfBlob = doc.output("blob");
-    const excelBlob = await buildStyledExcelBlob(saveRows, {
-      invoiceType,
-      invoiceNumber,
-      invoiceDate,
-      billToName: toName,
-      billToAddress: toAddress,
-      forLabel,
-      notes: mergedNotes,
-      printRows: printData.lines,
-      printSubtotal: printData.subtotal,
-      printHst: printData.hst,
-      printTotal: printData.total,
-    });
+      y += 16;
+      doc.setLineWidth(0.5);
+      doc.line(amountX - 18, y - 12, amountX + 62, y - 12);
+      doc.setFont("helvetica", "normal");
+      doc.text("SUB TOTAL", amountX - 52, y, { align: "right" });
+      doc.text(formatCurrency(printData.subtotal), amountX + 55, y, { align: "right" });
+      y += 16;
+      doc.text("HST", amountX - 52, y, { align: "right" });
+      doc.text(formatCurrency(printData.hst), amountX + 55, y, { align: "right" });
+      y += 16;
+      doc.setFont("helvetica", "bold");
+      doc.text("TOTAL", amountX - 52, y, { align: "right" });
+      doc.text(formatCurrency(printData.total), amountX + 55, y, { align: "right" });
 
-    const previewUrl = URL.createObjectURL(pdfBlob);
-    const previewWindow = window.open(previewUrl, "_blank", "noopener,noreferrer");
-    setTimeout(() => URL.revokeObjectURL(previewUrl), 20000);
+      y += 36;
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      if (mergedNotes && mergedNotes.trim()) {
+        doc.setFont("helvetica", "bold");
+        doc.text("Notes:", left, y);
+        y += 14;
+        doc.setFont("helvetica", "normal");
+        const noteLines = doc.splitTextToSize(String(mergedNotes).trim(), 420);
+        noteLines.slice(0, 18).forEach((line) => {
+          doc.text(line, left, y);
+          y += 12;
+        });
+        y += 4;
+      }
+      y += 16;
+      doc.setFont("helvetica", "bold");
+      doc.text("Thank you for your business!", left + 135, y);
+      y += 16;
+      doc.text("HST: 811718162", left + 170, y);
 
-    let autoSavedPdf = await uploadBlobToOneDrive(pdfName, pdfBlob, "invoice");
-    if (!autoSavedPdf.ok) autoSavedPdf = await writeBlobToAutoSaveFolder(pdfName, pdfBlob);
+      const pdfBlob = doc.output("blob");
+      const excelBlob = await buildStyledExcelBlob(saveRows, {
+        invoiceType,
+        invoiceNumber,
+        invoiceDate,
+        billToName: toName,
+        billToAddress: toAddress,
+        forLabel,
+        notes: mergedNotes,
+        printRows: printData.lines,
+        printSubtotal: printData.subtotal,
+        printHst: printData.hst,
+        printTotal: printData.total,
+      });
 
-    let autoSavedExcel = await uploadBlobToOneDrive(excelName, excelBlob, "invoice");
-    if (!autoSavedExcel.ok) autoSavedExcel = await writeBlobToAutoSaveFolder(excelName, excelBlob);
+      const previewUrl = URL.createObjectURL(pdfBlob);
+      const previewWindow = window.open(previewUrl, "_blank", "noopener,noreferrer");
+      setTimeout(() => URL.revokeObjectURL(previewUrl), 20000);
 
-    let pdfSavedByDownload = false;
-    if (!autoSavedPdf.ok) {
-      const pdfUrl = URL.createObjectURL(pdfBlob);
+      const pdfDownloadUrl = URL.createObjectURL(pdfBlob);
       const pdfLink = document.createElement("a");
-      pdfLink.href = pdfUrl;
+      pdfLink.href = pdfDownloadUrl;
       pdfLink.download = pdfName;
       pdfLink.rel = "noopener noreferrer";
       document.body.appendChild(pdfLink);
       pdfLink.click();
       pdfLink.remove();
-      setTimeout(() => URL.revokeObjectURL(pdfUrl), 20000);
-      pdfSavedByDownload = true;
-    }
-    if (!previewWindow) {
-      // Popup blockers can prevent previewing, but the download/save fallback above still runs.
-    }
-    if (!autoSavedExcel.ok) {
-      const url = URL.createObjectURL(excelBlob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = excelName;
-      a.click();
-      URL.revokeObjectURL(url);
-    }
+      setTimeout(() => URL.revokeObjectURL(pdfDownloadUrl), 20000);
 
-    const pdfStatus = autoSavedPdf.ok
-      ? (autoSavedPdf.parentPath
-        ? `PDF saved: ${autoSavedPdf.parentPath.replace("/drive/root:", "")}/${autoSavedPdf.name}`
-        : `PDF saved: ${pdfName}`)
-      : (pdfSavedByDownload
-        ? `PDF downloaded: ${pdfName}`
-        : `PDF save status unknown: ${pdfName}`);
-    const excelStatus = autoSavedExcel.ok
-      ? (autoSavedExcel.parentPath
-        ? `Excel saved: ${autoSavedExcel.parentPath.replace("/drive/root:", "")}/${autoSavedExcel.name}`
-        : `Excel saved: ${excelName}`)
-      : `Excel downloaded: ${excelName}`;
-    alert(`${pdfStatus}\n${excelStatus}`);
+      const saveResults = await Promise.allSettled([
+        uploadBlobToOneDrive(pdfName, pdfBlob, "invoice").then(async (result) => {
+          if (result.ok) return result;
+          return writeBlobToAutoSaveFolder(pdfName, pdfBlob);
+        }),
+        uploadBlobToOneDrive(excelName, excelBlob, "invoice").then(async (result) => {
+          if (result.ok) return result;
+          return writeBlobToAutoSaveFolder(excelName, excelBlob);
+        }),
+      ]);
 
-    await loadFolderContents();
+      const pdfResult = saveResults[0].status === "fulfilled" ? saveResults[0].value : { ok: false };
+      const excelResult = saveResults[1].status === "fulfilled" ? saveResults[1].value : { ok: false };
+
+      if (!previewWindow) {
+        // Popup blockers can prevent previewing, but the download click above still runs.
+      }
+
+      const pdfStatus = pdfResult?.ok
+        ? (pdfResult.parentPath
+          ? `PDF saved: ${pdfResult.parentPath.replace("/drive/root:", "")}/${pdfResult.name}`
+          : `PDF saved: ${pdfName}`)
+        : `PDF downloaded: ${pdfName}`;
+      const excelStatus = excelResult?.ok
+        ? (excelResult.parentPath
+          ? `Excel saved: ${excelResult.parentPath.replace("/drive/root:", "")}/${excelResult.name}`
+          : `Excel saved: ${excelName}`)
+        : `Excel downloaded: ${excelName}`;
+
+      alert(`${pdfStatus}\n${excelStatus}`);
+
+      await loadFolderContents();
+    } catch (error) {
+      alert(`Could not export PDF. ${error?.message || String(error || "Unknown error")}`);
+    }
   };
 
   const openFolderFile = async (fileEntry) => {
