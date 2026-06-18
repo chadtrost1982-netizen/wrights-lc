@@ -88,7 +88,10 @@ export default function App() {
   return (
     <Router>
       <div className="page">
-        <h1 className="brand-title">Disposal Solutions</h1>
+        <h1 className="brand-title">
+          <img src="/disposal-logo.png" alt="Disposal Solutions" className="brand-logo" />
+          <span>Disposal Solutions</span>
+        </h1>
         <nav className="top-nav">
           <Link to="/">Home</Link>
           <Link to="/quote-builder">Create Estimate</Link>
