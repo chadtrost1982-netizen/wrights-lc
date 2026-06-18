@@ -656,8 +656,8 @@ export default function QuoteList() {
                 }}
               >
                 <span className="file-list-name quote-file-name" style={{ wordBreak: "break-word" }}>{f.name}</span>
-                <span>{((f.size || 0) / 1024).toFixed(1)} KB</span>
-                <span>{new Date(f.updatedAt).toLocaleString()}</span>
+                <span className="file-list-meta quote-file-size">{((f.size || 0) / 1024).toFixed(1)} KB</span>
+                <span className="file-list-meta quote-file-date">{new Date(f.updatedAt).toLocaleString()}</span>
                 <span className="file-list-actions quote-file-actions" style={{ display: "flex", gap: "8px", alignItems: "center", justifyContent: "flex-end" }}>
                   <span style={{ fontSize: "12px", color: "#4a4a4a" }}>
                     Last sent: {fileSentLog[f.name] ? new Date(fileSentLog[f.name]).toLocaleString() : "Never"}

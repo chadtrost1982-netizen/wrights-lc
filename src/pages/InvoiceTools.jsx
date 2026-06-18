@@ -1358,9 +1358,9 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
                 }}
               >
                 <span className="file-list-name invoice-file-name" style={{ wordBreak: "break-word" }}>{f.name}</span>
-                <span>{(f.size / 1024).toFixed(1)} KB</span>
+                <span className="file-list-meta invoice-file-size">{(f.size / 1024).toFixed(1)} KB</span>
                 <span className="file-list-actions invoice-file-actions" style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                  <span>{new Date(f.updatedAt).toLocaleString()}</span>
+                  <span className="file-list-meta invoice-file-date">{new Date(f.updatedAt).toLocaleString()}</span>
                   <button
                     type="button"
                     className="btn-secondary"

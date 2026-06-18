@@ -761,8 +761,17 @@ h2 {
 }
 
 .file-list-name,
-.file-list-actions {
+.file-list-actions,
+.file-list-meta {
   min-width: 0;
+}
+
+.file-list-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.35;
 }
 
 .quote-builder-left .estimate-type-compact {
@@ -980,12 +989,14 @@ h2 {
 
   .quote-file-name,
   .invoice-file-name {
-    display: block;
     width: 100%;
-    word-break: normal !important;
-    overflow-wrap: anywhere;
-    white-space: normal;
-    line-height: 1.35;
+  }
+
+  .quote-file-size,
+  .quote-file-date,
+  .invoice-file-size,
+  .invoice-file-date {
+    display: none;
   }
 
   .quote-builder-left .customer-row,
