@@ -552,7 +552,7 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
     for await (const [name, entryHandle] of handle.entries()) {
       if (entryHandle.kind !== "file") continue;
       const file = await entryHandle.getFile();
-      files.push({ name, size: file.size, updatedAt: file.lastModified });
+      files.push({ name, size: file.size, updatedAt: file.lastModified, file });
     }
 
     files.sort((a, b) => extractInvoiceNumber(b.name) - extractInvoiceNumber(a.name));
@@ -1044,14 +1044,28 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
 
   const openFolderFile = async (fileEntry) => {
     try {
-      const folderHandle = await loadAutoSaveDirectoryHandle();
-      if (!folderHandle) {
-        alert("Auto-save folder is not configured.");
-        return;
+      let arrayBuffer;
+      if (fileEntry?.file) {
+        arrayBuffer = await fileEntry.file.arrayBuffer();
+      } else if (graphMode) {
+        const result = await downloadOneDriveFile("invoice", fileEntry.name);
+        if (result.ok) {
+          arrayBuffer = await result.blob.arrayBuffer();
+        } else {
+          alert("Could not download file from OneDrive: " + (result.reason || "Unknown error"));
+          return;
+        }
+      } else {
+        const folderHandle = await loadAutoSaveDirectoryHandle();
+        if (!folderHandle) {
+          alert("Auto-save folder is not configured.");
+          return;
+        }
+        const fileHandle = await folderHandle.getFileHandle(fileEntry.name);
+        const file = await fileHandle.getFile();
+        arrayBuffer = await file.arrayBuffer();
       }
-      const fileHandle = await folderHandle.getFileHandle(fileEntry.name);
-      const file = await fileHandle.getFile();
-      const arrayBuffer = await file.arrayBuffer();
+
       const workbook = XLSX.read(arrayBuffer, { type: "array" });
       const dataSheetName = workbook.SheetNames.includes("Data")
         ? "Data"
@@ -1060,8 +1074,8 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
       const json = XLSX.utils.sheet_to_json(firstSheet, { defval: "" });
       const loadedRows = Array.isArray(json) ? json : [];
 
-      setFileName(file.name);
-      setRefEstNumber(findRefEstNumber(file.name));
+      setFileName(fileEntry.name);
+      setRefEstNumber(findRefEstNumber(fileEntry.name));
       setRows(loadedRows);
 
       const loadedHeaders = Object.keys(loadedRows[0] || {}).map((h) => h.toUpperCase());
@@ -1081,25 +1095,41 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
           .slice(0, MAX_WHEEL_LINES);
         setWheelLines(parsed.length ? parsed : Array.from({ length: 8 }, () => blankWheelLine()));
       }
-    } catch {
-      alert("Could not open that file.");
+    } catch (err) {
+      alert("Could not open that file: " + (err.message || "Unknown error"));
     }
   };
 
   const viewFolderFile = async (fileName) => {
     try {
-      const folderHandle = await loadAutoSaveDirectoryHandle();
-      if (!folderHandle) {
-        alert("Auto-save folder is not configured.");
-        return;
+      if (typeof fileName === "object" && fileName?.file) {
+        const url = URL.createObjectURL(fileName.file);
+        window.open(url, "_blank", "noopener,noreferrer");
+        setTimeout(() => URL.revokeObjectURL(url), 15000);
+      } else if (graphMode) {
+        const result = await downloadOneDriveFile("invoice", fileName);
+        if (result.ok) {
+          const url = URL.createObjectURL(result.blob);
+          window.open(url, "_blank", "noopener,noreferrer");
+          setTimeout(() => URL.revokeObjectURL(url), 15000);
+        } else {
+          alert("Could not download file from OneDrive: " + (result.reason || "Unknown error"));
+        }
+      } else {
+        // Fall back to local folder
+        const folderHandle = await loadAutoSaveDirectoryHandle();
+        if (!folderHandle) {
+          alert("Auto-save folder is not configured.");
+          return;
+        }
+        const fileHandle = await folderHandle.getFileHandle(fileName);
+        const file = await fileHandle.getFile();
+        const url = URL.createObjectURL(file);
+        window.open(url, "_blank", "noopener,noreferrer");
+        setTimeout(() => URL.revokeObjectURL(url), 15000);
       }
-      const fileHandle = await folderHandle.getFileHandle(fileName);
-      const file = await fileHandle.getFile();
-      const url = URL.createObjectURL(file);
-      window.open(url, "_blank", "noopener,noreferrer");
-      setTimeout(() => URL.revokeObjectURL(url), 15000);
-    } catch {
-      alert("Could not open that file.");
+    } catch (err) {
+      alert("Could not open that file: " + (err.message || "Unknown error"));
     }
   };
 
@@ -1307,7 +1337,7 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
                     style={{ width: "auto", marginTop: 0, padding: "6px 10px" }}
                     onClick={(e) => {
                       e.stopPropagation();
-                      viewFolderFile(f.name);
+                      viewFolderFile(f);
                     }}
                   >
                     View
