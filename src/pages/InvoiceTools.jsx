@@ -1344,6 +1344,7 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
           ) : (
             folderFiles.map((f) => (
               <div
+                className="file-list-row invoice-file-row"
                 key={`${f.name}-${f.updatedAt}`}
                 onClick={() => (showCreate ? openFolderFile(f) : undefined)}
                 style={{
@@ -1356,9 +1357,9 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
                   cursor: showCreate ? "pointer" : "default",
                 }}
               >
-                <span style={{ wordBreak: "break-word" }}>{f.name}</span>
+                <span className="file-list-name invoice-file-name" style={{ wordBreak: "break-word" }}>{f.name}</span>
                 <span>{(f.size / 1024).toFixed(1)} KB</span>
-                <span style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                <span className="file-list-actions invoice-file-actions" style={{ display: "flex", gap: "8px", alignItems: "center" }}>
                   <span>{new Date(f.updatedAt).toLocaleString()}</span>
                   <button
                     type="button"

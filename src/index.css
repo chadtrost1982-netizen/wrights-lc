@@ -756,6 +756,15 @@ h2 {
   min-width: 0;
 }
 
+.file-list-row {
+  min-width: 0;
+}
+
+.file-list-name,
+.file-list-actions {
+  min-width: 0;
+}
+
 .quote-builder-left .estimate-type-compact {
   margin-bottom: 10px;
 }
@@ -933,6 +942,40 @@ h2 {
   .quote-builder-right .btn-secondary {
     width: 100%;
     margin-left: 0;
+  }
+
+  .file-list-row.quote-file-row,
+  .file-list-row.invoice-file-row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    padding: 12px 0;
+    align-items: start;
+  }
+
+  .file-list-row.quote-file-row > span,
+  .file-list-row.invoice-file-row > span {
+    width: 100%;
+  }
+
+  .quote-file-actions,
+  .invoice-file-actions {
+    flex-wrap: wrap;
+    justify-content: flex-start !important;
+  }
+
+  .quote-file-actions > span,
+  .invoice-file-actions > span {
+    width: 100%;
+  }
+
+  .quote-file-actions .btn-secondary,
+  .quote-file-actions .btn-primary,
+  .quote-file-actions .danger,
+  .invoice-file-actions .btn-secondary,
+  .invoice-file-actions .btn-primary,
+  .invoice-file-actions .danger {
+    width: auto !important;
+    flex: 1 1 110px;
   }
 
   .quote-builder-left .customer-row,
