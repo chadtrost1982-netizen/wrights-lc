@@ -112,6 +112,10 @@ h2 {
 
 .brand-title {
   font-family: "Copperplate Gothic Bold", "Copperplate Gothic", "Copperplate", Georgia, serif;
+  display: block;
+  width: 100%;
+  text-align: center;
+  margin: 0 0 18px;
 }
 
 .dash-grid {
