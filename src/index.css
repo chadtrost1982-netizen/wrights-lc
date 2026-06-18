@@ -946,7 +946,7 @@ h2 {
 
   .file-list-row.quote-file-row,
   .file-list-row.invoice-file-row {
-    grid-template-columns: 1fr;
+    grid-template-columns: 1fr !important;
     gap: 8px;
     padding: 12px 0;
     align-items: start;
@@ -976,6 +976,16 @@ h2 {
   .invoice-file-actions .danger {
     width: auto !important;
     flex: 1 1 110px;
+  }
+
+  .quote-file-name,
+  .invoice-file-name {
+    display: block;
+    width: 100%;
+    word-break: normal !important;
+    overflow-wrap: anywhere;
+    white-space: normal;
+    line-height: 1.35;
   }
 
   .quote-builder-left .customer-row,
