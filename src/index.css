@@ -121,8 +121,12 @@ h2 {
 }
 
 .brand-logo {
-  height: 50px;
+  height: 100px;
   width: auto;
+}
+
+.brand-title span {
+  color: #16a34a;
 }
 
 .dash-grid {
