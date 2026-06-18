@@ -13,6 +13,7 @@ import {
   isOneDriveGraphConfigured,
   listOneDriveFiles,
   queuePendingOneDriveUpload,
+  downloadOneDriveFile,
   sendGraphEmailWithAttachment,
   uploadBlobToOneDrive,
 } from "../utils/oneDriveGraph";
