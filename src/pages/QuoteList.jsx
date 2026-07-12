@@ -184,15 +184,14 @@ async function buildEstimatePdfFromExcelFile(file) {
   doc.setFont("helvetica", "normal");
   doc.text(numValue, right - 10, metaY, { align: "right" });
   doc.setFont("helvetica", "bold");
-  doc.text(numLabel, right - 10 - numWidth, metaY, { align: "right" });
+  doc.text(numLabel, right - 10 - numWidth - 5, metaY, { align: "right" });
   metaY += 16;
   const dateLabel = "Date: ";
   const dateValue = estimateDate || "";
-  const dateWidth = doc.getTextWidth(dateValue);
   doc.setFont("helvetica", "normal");
   doc.text(dateValue, right - 10, metaY, { align: "right" });
   doc.setFont("helvetica", "bold");
-  doc.text(dateLabel, right - 10 - dateWidth, metaY, { align: "right" });
+  doc.text(dateLabel, right - 40, metaY, { align: "right" });
 
   y += 98;
   doc.setFont("helvetica", "bold");
@@ -260,18 +259,31 @@ async function buildEstimatePdfFromExcelFile(file) {
 
   y += 24;
   if (notes) {
+    if (y > 650) {
+      doc.addPage();
+      y = 72;
+    }
     doc.setFont("helvetica", "bold");
     doc.text("Notes:", left, y);
     y += 14;
     doc.setFont("helvetica", "normal");
     const noteLines = doc.splitTextToSize(notes, 420);
-    noteLines.slice(0, 18).forEach((line) => {
+    const maxNoteLines = Math.max(0, Math.floor((750 - y) / 12) - 4);
+    noteLines.slice(0, Math.max(10, maxNoteLines)).forEach((line) => {
+      if (y > 730) {
+        doc.addPage();
+        y = 72;
+      }
       doc.text(line, left, y);
       y += 12;
     });
+    y += 10;
   }
 
-  y += 14;
+  if (y > 700) {
+    doc.addPage();
+    y = 72;
+  }
   doc.setFont("helvetica", "bold");
   doc.text("Thank you for your business!", left + 135, y);
 
