@@ -267,6 +267,7 @@ function buildPrintSheet(invoiceNumber, invoiceDate, headers, detailRows, subtot
   aoa.push(["", "", "", "", "TOTAL", total]);
   aoa.push([""]);
   aoa.push(["", "", "Thank you for your business!"]);
+  aoa.push(["", "", "HST: 76853 9579"]);
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws["!cols"] = [{ wch: 34 }, { wch: 2 }, { wch: isContainerLayout ? 16 : 22 }, { wch: 9 }, { wch: 12 }, { wch: 12 }];
@@ -381,6 +382,7 @@ async function buildStyledExcelBlob(saveRows, options = {}) {
     wsInv.addRow([""]);
   }
   wsInv.addRow(["", "", "Thank you for your business!"]);
+  wsInv.addRow(["", "", "HST: 76853 9579"]);
 
   [`A${companyRow}`, `A${address1Row}`, `A${address2Row}`, `A${phoneRow}`, `A${websiteRow}`].forEach((cell) => {
     wsInv.getCell(cell).font = { bold: true };
@@ -985,6 +987,9 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
       y += 16;
       doc.setFont("helvetica", "bold");
       doc.text("Thank you for your business!", left + 135, y);
+      y += 12;
+      doc.setFont("helvetica", "normal");
+      doc.text("HST: 76853 9579", left + 135, y);
 
       const pdfBlob = doc.output("blob");
       const excelBlob = await buildStyledExcelBlob(saveRows, {
