@@ -381,8 +381,11 @@ async function buildStyledExcelBlob(saveRows, options = {}) {
     });
     wsInv.addRow([""]);
   }
-  wsInv.addRow(["", "", "Thank you for your business!"]);
-  wsInv.addRow(["", "", "HST: 76853 9579"]);
+  const thankYouRow = wsInv.addRow(["", "", "Thank you for your business!"]).number;
+  const hstFooterRow = wsInv.addRow(["", "", "HST: 76853 9579"]).number;
+
+  wsInv.getCell(`C${thankYouRow}`).alignment = { horizontal: "center" };
+  wsInv.getCell(`C${hstFooterRow}`).alignment = { horizontal: "center" };
 
   [`A${companyRow}`, `A${address1Row}`, `A${address2Row}`, `A${phoneRow}`, `A${websiteRow}`].forEach((cell) => {
     wsInv.getCell(cell).font = { bold: true };
@@ -985,11 +988,13 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
         y += 4;
       }
       y += 16;
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const centerX = pageWidth / 2;
       doc.setFont("helvetica", "bold");
-      doc.text("Thank you for your business!", left + 135, y);
+      doc.text("Thank you for your business!", centerX, y, { align: "center" });
       y += 12;
       doc.setFont("helvetica", "normal");
-      doc.text("HST: 76853 9579", left + 135, y);
+      doc.text("HST: 76853 9579", centerX, y, { align: "center" });
 
       const pdfBlob = doc.output("blob");
       const excelBlob = await buildStyledExcelBlob(saveRows, {
