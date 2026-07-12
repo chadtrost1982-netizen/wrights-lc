@@ -904,7 +904,7 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
       doc.setFont("helvetica", "normal");
       doc.text(dateValue, right - 10, metaY, { align: "right" });
       doc.setFont("helvetica", "bold");
-      doc.text(datePrefix, right - 10 - dateValueWidth, metaY, { align: "right" });
+      doc.text(datePrefix, right - 10 - dateValueWidth - 5, metaY, { align: "right" });
 
       y += 28;
       doc.setFont("helvetica", "bold");
@@ -928,9 +928,9 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
       const tableRight = right;
       const rowHeight = 18;
       const descriptionWidth = 280;
-      const qtyX = right - 120;
-      const rateX = right - 75;
-      const amountX = right - 15;
+      const qtyX = right - 130;
+      const rateX = right - 80;
+      const amountX = right - 10;
 
       doc.setFont("helvetica", "bold");
       doc.setFontSize(10);
@@ -963,16 +963,16 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
 
       y += 16;
       doc.setLineWidth(0.5);
-      doc.line(qtyX - 25, y - 12, amountX + 15, y - 12);
+      doc.line(qtyX - 35, y - 12, amountX + 10, y - 12);
       doc.setFont("helvetica", "normal");
-      doc.text("SUB TOTAL", qtyX - 50, y, { align: "right" });
+      doc.text("SUB TOTAL", qtyX - 60, y, { align: "right" });
       doc.text(formatCurrency(printData.subtotal), amountX, y, { align: "right" });
       y += 16;
-      doc.text("HST", qtyX - 50, y, { align: "right" });
+      doc.text("HST", qtyX - 60, y, { align: "right" });
       doc.text(formatCurrency(printData.hst), amountX, y, { align: "right" });
       y += 16;
       doc.setFont("helvetica", "bold");
-      doc.text("TOTAL", qtyX - 50, y, { align: "right" });
+      doc.text("TOTAL", qtyX - 60, y, { align: "right" });
       doc.text(formatCurrency(printData.total), amountX, y, { align: "right" });
 
       y += 36;

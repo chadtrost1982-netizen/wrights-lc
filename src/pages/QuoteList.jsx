@@ -188,10 +188,11 @@ async function buildEstimatePdfFromExcelFile(file) {
   metaY += 16;
   const dateLabel = "Date: ";
   const dateValue = estimateDate || "";
+  const dateValueWidth = doc.getTextWidth(dateValue);
   doc.setFont("helvetica", "normal");
   doc.text(dateValue, right - 10, metaY, { align: "right" });
   doc.setFont("helvetica", "bold");
-  doc.text(dateLabel, right - 40, metaY, { align: "right" });
+  doc.text(dateLabel, right - 10 - dateValueWidth - 5, metaY, { align: "right" });
 
   y += 98;
   doc.setFont("helvetica", "bold");
@@ -213,9 +214,9 @@ async function buildEstimatePdfFromExcelFile(file) {
   const tableRight = right;
   const rowHeight = 18;
   const descriptionWidth = 280;
-  const qtyX = right - 120;
-  const rateX = right - 75;
-  const amountX = right - 15;
+  const qtyX = right - 130;
+  const rateX = right - 80;
+  const amountX = right - 10;
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(10);
@@ -245,16 +246,16 @@ async function buildEstimatePdfFromExcelFile(file) {
   });
 
   y += 16;
-  doc.line(qtyX - 25, y - 12, amountX + 15, y - 12);
+  doc.line(qtyX - 35, y - 12, amountX + 10, y - 12);
   doc.setFont("helvetica", "normal");
-  doc.text("SUB TOTAL", qtyX - 50, y, { align: "right" });
+  doc.text("SUB TOTAL", qtyX - 60, y, { align: "right" });
   doc.text(money(subtotal), amountX, y, { align: "right" });
   y += 16;
-  doc.text("HST", qtyX - 50, y, { align: "right" });
+  doc.text("HST", qtyX - 60, y, { align: "right" });
   doc.text(money(hst), amountX, y, { align: "right" });
   y += 16;
   doc.setFont("helvetica", "bold");
-  doc.text("TOTAL", qtyX - 50, y, { align: "right" });
+  doc.text("TOTAL", qtyX - 60, y, { align: "right" });
   doc.text(money(total), amountX, y, { align: "right" });
 
   y += 24;
