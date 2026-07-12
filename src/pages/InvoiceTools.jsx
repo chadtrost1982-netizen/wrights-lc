@@ -314,6 +314,8 @@ async function buildStyledExcelBlob(saveRows, options = {}) {
   const wsInv = wb.addWorksheet("Invoice");
   const wsInfo = wb.addWorksheet("Info");
   const wsData = wb.addWorksheet("Data");
+  wsInfo.hidden = true;
+  wsData.hidden = true;
   try {
     const logoDataUrl = await getLogoDataUrl();
     if (logoDataUrl) {

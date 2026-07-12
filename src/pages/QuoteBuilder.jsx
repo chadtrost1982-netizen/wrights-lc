@@ -181,6 +181,8 @@ export default function QuoteBuilder() {
     const wsEst = wb.addWorksheet("Estimate");
     const wsInfo = wb.addWorksheet("Info");
     const wsData = wb.addWorksheet("Data");
+    wsInfo.hidden = true;
+    wsData.hidden = true;
     const isContainerLayout = Boolean(quote.container);
     try {
       const logoDataUrl = await getLogoDataUrl();
