@@ -904,7 +904,7 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
       doc.setFont("helvetica", "normal");
       doc.text(dateValue, right - 10, metaY, { align: "right" });
       doc.setFont("helvetica", "bold");
-      doc.text(datePrefix, right - 10 - dateValueWidth - 5, metaY, { align: "right" });
+      doc.text(datePrefix, right - 10 - dateValueWidth - 15, metaY, { align: "right" });
 
       y += 28;
       doc.setFont("helvetica", "bold");

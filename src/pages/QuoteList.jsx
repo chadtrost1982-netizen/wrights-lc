@@ -192,7 +192,7 @@ async function buildEstimatePdfFromExcelFile(file) {
   doc.setFont("helvetica", "normal");
   doc.text(dateValue, right - 10, metaY, { align: "right" });
   doc.setFont("helvetica", "bold");
-  doc.text(dateLabel, right - 10 - dateValueWidth - 5, metaY, { align: "right" });
+  doc.text(dateLabel, right - 10 - dateValueWidth - 15, metaY, { align: "right" });
 
   y += 98;
   doc.setFont("helvetica", "bold");
