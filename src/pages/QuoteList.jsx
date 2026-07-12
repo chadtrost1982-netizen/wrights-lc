@@ -155,7 +155,7 @@ async function buildEstimatePdfFromExcelFile(file) {
   try {
     const logoDataUrl = await getLogoDataUrl();
     if (logoDataUrl) {
-      doc.addImage(logoDataUrl, "PNG", left, y - 20, 120, 40);
+      doc.addImage(logoDataUrl, "PNG", left, y - 24, 136, 45);
     }
   } catch {
     // Keep PDF export working even if logo fails to load.
@@ -171,11 +171,10 @@ async function buildEstimatePdfFromExcelFile(file) {
   doc.setFont("helvetica", "bold");
   doc.setFontSize(14);
   doc.text("DISPOSAL SOLUTIONS", left, y);
-  doc.text("o/a Wrights L.C.", left, y + 14);
-  doc.text("4805 8th Line", left, y + 28);
-  doc.text("Beeton, ON, L0G 1A0", left, y + 42);
-  doc.text("Phone 416 889 5284 / 705 707 6064", left, y + 56);
-  doc.text("www.DisposalSolutions.ca", left, y + 70);
+  doc.text("4805 8th Line", left, y + 14);
+  doc.text("Beeton, ON, L0G 1A0", left, y + 28);
+  doc.text("Phone 416 889 5284 / 705 707 6064", left, y + 42);
+  doc.text("www.DisposalSolutions.ca", left, y + 56);
 
   let metaY = 126;
   doc.setFontSize(10);
@@ -274,8 +273,6 @@ async function buildEstimatePdfFromExcelFile(file) {
   y += 14;
   doc.setFont("helvetica", "bold");
   doc.text("Thank you for your business!", left + 135, y);
-  y += 16;
-  doc.text("HST: 811718162", left + 170, y);
 
   return doc.output("blob");
 }

@@ -188,7 +188,7 @@ export default function QuoteBuilder() {
         const logoId = wb.addImage({ base64: logoDataUrl, extension: "png" });
         wsEst.addImage(logoId, {
           tl: { col: 0, row: 0 },
-          ext: { width: 140, height: 46 },
+          ext: { width: 160, height: 52 },
         });
       }
     } catch {
@@ -198,12 +198,11 @@ export default function QuoteBuilder() {
     wsEst.columns = [{ width: 34 }, { width: 2 }, { width: isContainerLayout ? 16 : 22 }, { width: 10 }, { width: 13 }, { width: 13 }];
     wsEst.addRow(["", "", "", "", ""]);
     wsEst.addRow([""]);
-    wsEst.addRow(["DISPOSAL SOLUTIONS", "", "", "", ""]);
-    wsEst.addRow(["o/a Wrights L.C.", "", "", "", ""]);
-    wsEst.addRow(["4805 8th Line", "", "", "", ""]);
-    wsEst.addRow(["Beeton, ON, L0G 1A0"]);
-    wsEst.addRow(["Phone 416 889 5284 / 705 707 6064"]);
-    wsEst.addRow(["www.DisposalSolutions.ca"]);
+    const companyRow = wsEst.addRow(["DISPOSAL SOLUTIONS", "", "", "", ""]).number;
+    const address1Row = wsEst.addRow(["4805 8th Line", "", "", "", ""]).number;
+    const address2Row = wsEst.addRow(["Beeton, ON, L0G 1A0"]).number;
+    const phoneRow = wsEst.addRow(["Phone 416 889 5284 / 705 707 6064"]).number;
+    const websiteRow = wsEst.addRow(["www.DisposalSolutions.ca"]).number;
     wsEst.addRow([""]);
     wsEst.addRow(["To:", "", "For:"]);
     const toForRow = wsEst.lastRow.number;
@@ -334,17 +333,20 @@ export default function QuoteBuilder() {
       wsEst.addRow([""]);
     }
     wsEst.addRow(["", "", "Thank you for your business!"]);
-    wsEst.addRow(["", "", "HST: 811718162"]);
 
-    ["E1", "A3", "A4", "A5", "A6", "A7", "A8", "A9"].forEach((cell) => {
+    [
+      "E1",
+      `A${companyRow}`,
+      `A${address1Row}`,
+      `A${address2Row}`,
+      `A${phoneRow}`,
+      `A${websiteRow}`,
+    ].forEach((cell) => {
       wsEst.getCell(cell).font = { bold: true };
     });
     wsEst.getCell("E1").value = {
       richText: [{ text: String(titleLabel || "ESTIMATE"), font: { bold: true } }],
     };
-    wsEst.getCell("A7").font = { bold: true };
-    wsEst.getCell("A8").font = { bold: true };
-    wsEst.getCell("A9").font = { bold: true };
     wsEst.getCell(`A${toForRow}`).font = { bold: true };
     wsEst.getCell(`C${toForRow}`).font = { bold: true };
     ["A", "D", "E", "F"].forEach((col) => {
@@ -382,7 +384,6 @@ export default function QuoteBuilder() {
     wsInfo.columns = [{ width: 20 }, { width: 40 }];
     [
       ["Company", "DISPOSAL SOLUTIONS"],
-      ["Operating As", "o/a Wrights L.C."],
       ["Address", "4805 8th Line, Beeton, ON, L0G 1A0"],
       ["Phone", "416 889 5284 / 705 707 6064"],
       ["Website", "www.DisposalSolutions.ca"],
@@ -400,7 +401,6 @@ export default function QuoteBuilder() {
             : "Container",
       ],
       ["Notes", quote.notes || ""],
-      ["HST #", "811718162"],
     ].forEach((row) => wsInfo.addRow(row));
     wsInfo.getColumn(1).font = { bold: true };
 

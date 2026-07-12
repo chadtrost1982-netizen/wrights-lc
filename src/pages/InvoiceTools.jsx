@@ -238,7 +238,6 @@ function buildPrintSheet(invoiceNumber, invoiceDate, headers, detailRows, subtot
     ["", "", "", "", "INVOICE"],
     [""],
     ["DISPOSAL SOLUTIONS", "", "", "", `Invoice #: ${invoiceNumber}`],
-    ["o/a Wrights L.C."],
     ["4805 8th Line", "", "", "", `Date: ${invoiceDate}`],
     ["Beeton, ON, L0G 1A0"],
     ["Phone 416 889 5284 / 705 707 6064"],
@@ -268,7 +267,6 @@ function buildPrintSheet(invoiceNumber, invoiceDate, headers, detailRows, subtot
   aoa.push(["", "", "", "", "TOTAL", total]);
   aoa.push([""]);
   aoa.push(["", "", "Thank you for your business!"]);
-  aoa.push(["", "", "HST: 811718162"]);
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws["!cols"] = [{ wch: 34 }, { wch: 2 }, { wch: isContainerLayout ? 16 : 22 }, { wch: 9 }, { wch: 12 }, { wch: 12 }];
@@ -278,20 +276,19 @@ function buildPrintSheet(invoiceNumber, invoiceDate, headers, detailRows, subtot
     { s: { r: 2, c: 0 }, e: { r: 2, c: 2 } },   // company line
     { s: { r: 3, c: 0 }, e: { r: 3, c: 2 } },
     { s: { r: 4, c: 0 }, e: { r: 4, c: 2 } },
-    { s: { r: 5, c: 0 }, e: { r: 5, c: 2 } },
-    { s: { r: 8, c: 0 }, e: { r: 8, c: 2 } },   // bill-to lines
+    { s: { r: 7, c: 0 }, e: { r: 7, c: 2 } },   // bill-to lines
+    { s: { r: 8, c: 0 }, e: { r: 8, c: 2 } },
     { s: { r: 9, c: 0 }, e: { r: 9, c: 2 } },
-    { s: { r: 10, c: 0 }, e: { r: 10, c: 2 } },
-    { s: { r: 12, c: 0 }, e: { r: 12, c: 2 } }, // DESCRIPTION header
+    { s: { r: 11, c: 0 }, e: { r: 11, c: 2 } }, // DESCRIPTION header
   ];
   ws["!rows"] = Array.from({ length: aoa.length }, (_, i) => {
     if (i === 0) return { hpt: 24 };
-    if (i === 12) return { hpt: 18 };
+    if (i === 11) return { hpt: 18 };
     return { hpt: 16 };
   });
 
   const range = XLSX.utils.decode_range(ws["!ref"]);
-  const boldCells = ["E1", "A3", "A4", "E3", "E4", "A9", "C9", "A14", "D14", "E14", "F14", "E19", "F19"];
+  const boldCells = ["E1", "A3", "A4", "A5", "E3", "E4", "A8", "C8", "A12", "D12", "E12", "F12"];
   boldCells.forEach((cellRef) => {
     if (!ws[cellRef]) return;
     ws[cellRef].s = {
@@ -322,7 +319,7 @@ async function buildStyledExcelBlob(saveRows, options = {}) {
       const logoId = wb.addImage({ base64: logoDataUrl, extension: "png" });
       wsInv.addImage(logoId, {
         tl: { col: 0, row: 0.15 },
-        ext: { width: 120, height: 40 },
+        ext: { width: 136, height: 45 },
       });
     }
   } catch {
@@ -340,12 +337,11 @@ async function buildStyledExcelBlob(saveRows, options = {}) {
   ];
   const titleRow = wsInv.addRow(["", "", "", "", "INVOICE"]).number;
   wsInv.addRow([""]);
-  wsInv.addRow(["DISPOSAL SOLUTIONS", "", "", "", ""]);
-  wsInv.addRow(["o/a Wrights L.C.", "", "", "", ""]);
-  wsInv.addRow(["4805 8th Line", "", "", "", ""]);
-  wsInv.addRow(["Beeton, ON, L0G 1A0"]);
-  wsInv.addRow(["Phone 416 889 5284 / 705 707 6064"]);
-  wsInv.addRow(["www.DisposalSolutions.ca"]);
+  const companyRow = wsInv.addRow(["DISPOSAL SOLUTIONS", "", "", "", ""]).number;
+  const address1Row = wsInv.addRow(["4805 8th Line", "", "", "", ""]).number;
+  const address2Row = wsInv.addRow(["Beeton, ON, L0G 1A0"]).number;
+  const phoneRow = wsInv.addRow(["Phone 416 889 5284 / 705 707 6064"]).number;
+  const websiteRow = wsInv.addRow(["www.DisposalSolutions.ca"]).number;
   wsInv.addRow([""]);
   wsInv.addRow(["To:", "", "For:"]);
   const toForRow = wsInv.lastRow.number;
@@ -385,29 +381,25 @@ async function buildStyledExcelBlob(saveRows, options = {}) {
     wsInv.addRow([""]);
   }
   wsInv.addRow(["", "", "Thank you for your business!"]);
-  wsInv.addRow(["", "", "HST: 811718162"]);
 
-  ["A3", "A4", "A5", "A6", "A7", "A8", "A9"].forEach((cell) => {
+  [`A${companyRow}`, `A${address1Row}`, `A${address2Row}`, `A${phoneRow}`, `A${websiteRow}`].forEach((cell) => {
     wsInv.getCell(cell).font = { bold: true };
   });
   wsInv.getCell(`E${titleRow}`).value = {
     richText: [{ text: "INVOICE", font: { bold: true } }],
   };
-  wsInv.getCell("A7").font = { bold: true };
-  wsInv.getCell("A8").font = { bold: true };
-  wsInv.getCell("A9").font = { bold: true };
   wsInv.getCell(`A${toForRow}`).font = { bold: true };
   wsInv.getCell(`C${toForRow}`).font = { bold: true };
   ["A", "D", "E", "F"].forEach((col) => {
     wsInv.getCell(`${col}${headerRow}`).font = { bold: true };
   });
-  wsInv.getCell("E4").value = {
+  wsInv.getCell(`E${companyRow + 1}`).value = {
     richText: [
       { text: "Invoice #: ", font: { bold: true } },
       { text: String(options.invoiceNumber || ""), font: { bold: false } },
     ],
   };
-  wsInv.getCell("E5").value = {
+  wsInv.getCell(`E${address1Row + 1}`).value = {
     richText: [
       { text: "Date: ", font: { bold: true } },
       { text: String(options.invoiceDate || ""), font: { bold: false } },
@@ -434,13 +426,11 @@ async function buildStyledExcelBlob(saveRows, options = {}) {
   wsInfo.columns = [{ width: 20 }, { width: 40 }];
   [
     ["Company", "DISPOSAL SOLUTIONS"],
-    ["Operating As", "o/a Wrights L.C."],
     ["Address", "4805 8th Line, Beeton, ON, L0G 1A0"],
     ["Phone", "416 889 5284 / 705 707 6064"],
     ["Website", "www.DisposalSolutions.ca"],
     ["Invoice #", options.invoiceNumber || ""],
     ["Date", options.invoiceDate || ""],
-    ["HST #", "811718162"],
   ].forEach((row) => wsInfo.addRow(row));
   wsInfo.getColumn(1).font = { bold: true };
 
@@ -868,7 +858,7 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
       try {
         const logoDataUrl = await getLogoDataUrl();
         if (logoDataUrl) {
-          doc.addImage(logoDataUrl, "PNG", left, y - 20, 120, 40);
+          doc.addImage(logoDataUrl, "PNG", left, y - 24, 136, 45);
         }
       } catch {
         // Keep PDF export working even if logo fails to load.
@@ -884,14 +874,13 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
       doc.setFont("helvetica", "bold");
       doc.setFontSize(14);
       doc.text("DISPOSAL SOLUTIONS", left, y);
-      doc.text("o/a Wrights L.C.", left, y + 14);
-      doc.text("4805 8th Line", left, y + 28);
-      doc.text("Beeton, ON, L0G 1A0", left, y + 42);
-      doc.text("Phone 416 889 5284 / 705 707 6064", left, y + 56);
-      doc.text("www.DisposalSolutions.ca", left, y + 70);
+      doc.text("4805 8th Line", left, y + 14);
+      doc.text("Beeton, ON, L0G 1A0", left, y + 28);
+      doc.text("Phone 416 889 5284 / 705 707 6064", left, y + 42);
+      doc.text("www.DisposalSolutions.ca", left, y + 56);
 
       doc.setFontSize(10);
-      y += 70;
+      y += 56;
 
       let metaY = 126;
       const invoicePrefix = "Invoice #: ";
@@ -996,8 +985,6 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
       y += 16;
       doc.setFont("helvetica", "bold");
       doc.text("Thank you for your business!", left + 135, y);
-      y += 16;
-      doc.text("HST: 811718162", left + 170, y);
 
       const pdfBlob = doc.output("blob");
       const excelBlob = await buildStyledExcelBlob(saveRows, {
