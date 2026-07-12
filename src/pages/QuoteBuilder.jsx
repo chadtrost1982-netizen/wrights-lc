@@ -195,7 +195,7 @@ export default function QuoteBuilder() {
       // Keep export working even if logo fails to load.
     }
 
-    wsEst.columns = [{ width: 34 }, { width: 2 }, { width: isContainerLayout ? 16 : 22 }, { width: 10 }, { width: 13 }, { width: 13 }];
+    wsEst.columns = [{ width: 36 }, { width: 2 }, { width: isContainerLayout ? 18 : 24 }, { width: 11 }, { width: 14 }, { width: 14 }];
     wsEst.addRow(["", "", "", "", ""]);
     wsEst.addRow([""]);
     const companyRow = wsEst.addRow(["DISPOSAL SOLUTIONS", "", "", "", ""]).number;

@@ -213,9 +213,10 @@ async function buildEstimatePdfFromExcelFile(file) {
   const tableLeft = left;
   const tableRight = right;
   const rowHeight = 18;
-  const qtyX = tableLeft + 330;
-  const rateX = tableLeft + 390;
-  const amountX = tableLeft + 450;
+  const descriptionWidth = 280;
+  const qtyX = right - 120;
+  const rateX = right - 75;
+  const amountX = right - 15;
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(10);
@@ -235,27 +236,27 @@ async function buildEstimatePdfFromExcelFile(file) {
       doc.addPage();
       y = 72;
     }
-    const wrapped = doc.splitTextToSize(String(line.description || ""), 315);
+    const wrapped = doc.splitTextToSize(String(line.description || ""), descriptionWidth);
     const lines = wrapped.length ? wrapped : [""];
     doc.text(lines, tableLeft, y);
-    doc.text(String(line.qty || ""), qtyX + 28, y, { align: "right" });
-    doc.text(money(line.rate), rateX + 45, y, { align: "right" });
-    doc.text(money(line.amount), amountX + 55, y, { align: "right" });
+    doc.text(String(line.qty || ""), qtyX, y, { align: "right" });
+    doc.text(money(line.rate), rateX, y, { align: "right" });
+    doc.text(money(line.amount), amountX, y, { align: "right" });
     y += Math.max(rowHeight, lines.length * 12);
   });
 
   y += 16;
-  doc.line(amountX - 18, y - 12, amountX + 62, y - 12);
+  doc.line(qtyX - 25, y - 12, amountX + 15, y - 12);
   doc.setFont("helvetica", "normal");
-  doc.text("SUB TOTAL", amountX - 52, y, { align: "right" });
-  doc.text(money(subtotal), amountX + 55, y, { align: "right" });
+  doc.text("SUB TOTAL", qtyX - 50, y, { align: "right" });
+  doc.text(money(subtotal), amountX, y, { align: "right" });
   y += 16;
-  doc.text("HST", amountX - 52, y, { align: "right" });
-  doc.text(money(hst), amountX + 55, y, { align: "right" });
+  doc.text("HST", qtyX - 50, y, { align: "right" });
+  doc.text(money(hst), amountX, y, { align: "right" });
   y += 16;
   doc.setFont("helvetica", "bold");
-  doc.text("TOTAL", amountX - 52, y, { align: "right" });
-  doc.text(money(total), amountX + 55, y, { align: "right" });
+  doc.text("TOTAL", qtyX - 50, y, { align: "right" });
+  doc.text(money(total), amountX, y, { align: "right" });
 
   y += 24;
   if (notes) {
