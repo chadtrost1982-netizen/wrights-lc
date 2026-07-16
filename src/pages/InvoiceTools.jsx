@@ -468,6 +468,7 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
   const [customerOptions, setCustomerOptions] = useState([]);
   const [workPresets, setWorkPresets] = useState([]); // [{work, rate}]
   const [emailFile, setEmailFile] = useState(null);
+  const [emailFileEntry, setEmailFileEntry] = useState(null);
   const [emailTo, setEmailTo] = useState("");
   const [emailCc, setEmailCc] = useState("");
   const [emailSubject, setEmailSubject] = useState("");
@@ -481,6 +482,7 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
   const [billToAddress, setBillToAddress] = useState("");
   const [invoiceNotes, setInvoiceNotes] = useState("");
   const [draftForLabel, setDraftForLabel] = useState("");
+  const [draftCustomerEmail, setDraftCustomerEmail] = useState("");
 
   const isWheelStyle = invoiceType === "wheel" || invoiceType === "services";
   const customerKey = invoiceType === "services" ? CUSTOMER_KEY_SERVICE : CUSTOMER_KEY_WHEEL;
@@ -588,6 +590,7 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
       setRefEstNumber(String(draft?.refEstNumber || ""));
       setFileName(String(draft?.sourceFile || ""));
       setBillToName(String(draft?.customer || ""));
+      setDraftCustomerEmail(String(draft?.customerEmail || ""));
       setBillToAddress(String(draft?.customerAddress || ""));
       setInvoiceNotes(String(draft?.notes || ""));
       setDraftForLabel(String(draft?.draftForLabel || ""));
@@ -631,9 +634,24 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
     const ref = String(refEstNumber || "").trim();
     if (isWheelStyle) {
       if (invoiceType === "services") {
+        const preferredCustomer = String(billToName || inferCustomerFromWheel(linesForCustomer) || "").trim();
+        const safeCustomer = preferredCustomer.replace(/[\\/:*?"<>|]/g, "").trim() || "Customer";
+        const draftLabel = String(draftForLabel || "").trim();
+        const rowLabels = Array.isArray(saveRows)
+          ? saveRows
+            .map((row) => String(row?.["WORK PERFORMED"] || row?.DESCRIPTION || "").trim())
+            .filter(Boolean)
+          : [];
+        let docType = "Services";
+        if (/container/i.test(draftLabel) || rowLabels.some((label) => /container/i.test(label))) {
+          docType = "Container";
+        } else if (/disposal/i.test(draftLabel) || rowLabels.some((label) => looksLikeDisposalLine(label))) {
+          docType = "Disposal";
+        }
+        const safeDocType = docType.replace(/[\\/:*?"<>|]/g, "").trim() || "Services";
         return ref
-          ? `Inv ${invoiceNumber} - Services Rendered - Ref ${ref}`
-          : `Inv ${invoiceNumber} - Services Rendered`;
+          ? `Inv ${invoiceNumber} - ${safeCustomer} - ${safeDocType} - Ref ${ref}`
+          : `Inv ${invoiceNumber} - ${safeCustomer} - ${safeDocType}`;
       }
       return ref
         ? `Inv ${invoiceNumber} - Alloy Wheel - Services Rendered - Ref ${ref}`
@@ -917,7 +935,7 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
       y += 14;
       const addressLines = doc.splitTextToSize(String(toAddress || ""), isContainerLayout ? 180 : 210);
       doc.text(addressLines.length ? addressLines : [""], left, y);
-      doc.text(isContainerLayout ? "Container" : "Invoice", left + (isContainerLayout ? 200 : 230), y);
+      doc.text("Invoice", left + (isContainerLayout ? 200 : 230), y);
       if (addressLines.length > 1) {
         y += (addressLines.length - 1) * 12;
       }
@@ -1162,13 +1180,35 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
     }
   };
 
-  const openEmailModal = (fileName) => {
+  const openEmailModal = (fileEntryOrName) => {
+    const entry =
+      fileEntryOrName && typeof fileEntryOrName === "object"
+        ? fileEntryOrName
+        : { name: String(fileEntryOrName || "") };
+    const fileName = String(entry.name || "");
     setEmailFile(fileName);
+    setEmailFileEntry(entry);
     setEmailSendSuccess(false);
     const guessedCustomer = guessCustomerFromFileName(fileName);
     setEmailCustomerName(guessedCustomer);
-    const existing = customerContacts.find((c) => c.name.toLowerCase() === guessedCustomer.toLowerCase());
-    setEmailTo(existing?.email || "");
+    const normalizedGuess = guessedCustomer.trim().toLowerCase();
+    const existing = customerContacts.find((c) => c.name.toLowerCase() === normalizedGuess);
+    let nextEmailTo = existing?.email || "";
+
+    if (!nextEmailTo && normalizedGuess) {
+      const wheelContacts = loadJsonFromStorage(CUSTOMER_CONTACTS_KEY_WHEEL, []);
+      const wheelMatch = wheelContacts.find((c) => String(c?.name || "").toLowerCase() === normalizedGuess);
+      if (wheelMatch?.email) nextEmailTo = String(wheelMatch.email).trim();
+    }
+
+    if (!nextEmailTo && draftCustomerEmail.trim()) {
+      const normalizedBillTo = String(billToName || "").trim().toLowerCase();
+      if (!normalizedGuess || normalizedGuess === normalizedBillTo) {
+        nextEmailTo = draftCustomerEmail.trim();
+      }
+    }
+
+    setEmailTo(nextEmailTo);
     setEmailCc("");
     setEmailSubject(`Invoice - ${fileName}`);
     setEmailBody("Please find your invoice attached.");
@@ -1187,23 +1227,35 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
       return;
     }
 
-    const folderHandle = await loadAutoSaveDirectoryHandle();
-    if (!folderHandle) {
-      alert("Auto-save folder is not configured.");
-      return;
-    }
-
     setSendingEmail(true);
     try {
-      const fileHandle = await folderHandle.getFileHandle(emailFile);
-      const file = await fileHandle.getFile();
+      let fileBlob;
+      if (graphMode) {
+        const oneDriveResult = emailFileEntry?.id
+          ? await downloadOneDriveFileById("invoice", emailFileEntry.id)
+          : await downloadOneDriveFile("invoice", emailFile);
+        if (!oneDriveResult.ok) {
+          alert(`Could not load attachment from OneDrive: ${oneDriveResult.reason || "Unknown error"}`);
+          return;
+        }
+        fileBlob = oneDriveResult.blob;
+      } else {
+        const folderHandle = await loadAutoSaveDirectoryHandle();
+        if (!folderHandle) {
+          alert("Auto-save folder is not configured.");
+          return;
+        }
+        const fileHandle = await folderHandle.getFileHandle(emailFile);
+        fileBlob = await fileHandle.getFile();
+      }
+
       const result = await sendGraphEmailWithAttachment({
         to: emailTo,
         cc: emailCc,
         subject: emailSubject || `Invoice - ${emailFile}`,
         body: emailBody,
         fileName: emailFile,
-        blob: file,
+        blob: fileBlob,
       });
 
       if (result.ok) {
@@ -1229,6 +1281,7 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
         setTimeout(() => {
           setEmailSendSuccess(false);
           setEmailFile(null);
+          setEmailFileEntry(null);
         }, 1200);
       } else {
         alert(emailErrorMessage(result));
@@ -1378,7 +1431,7 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
                     style={{ width: "auto", marginTop: 0, padding: "6px 10px" }}
                     onClick={(e) => {
                       e.stopPropagation();
-                      openEmailModal(f.name);
+                      openEmailModal(f);
                     }}
                   >
                     Email
@@ -1402,6 +1455,11 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
           <div className="modal-content">
             <h3>Email Invoice</h3>
             <p><strong>Attachment:</strong> {emailFile}</p>
+            <p style={{ marginTop: "-6px", color: "#4a4a4a", fontSize: "12px" }}>
+              Source: {graphMode
+                ? `OneDrive${emailFileEntry?.id ? " (selected item)" : " (name lookup)"}`
+                : "Local autosave folder"}
+            </p>
             <label>Customer</label>
             <input
               value={emailCustomerName}
@@ -1435,7 +1493,14 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
               </div>
             )}
             <div className="actions" style={{ marginTop: "14px" }}>
-              <button className="btn-secondary" onClick={() => setEmailFile(null)} disabled={sendingEmail}>
+              <button
+                className="btn-secondary"
+                onClick={() => {
+                  setEmailFile(null);
+                  setEmailFileEntry(null);
+                }}
+                disabled={sendingEmail}
+              >
                 Cancel
               </button>
               <button className="btn-primary" onClick={sendInvoiceEmail} disabled={sendingEmail}>

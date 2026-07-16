@@ -592,6 +592,7 @@ export default function QuoteList() {
         return String((row && row[1]) || "").trim();
       };
       const customer = findInfo("Customer") || guessCustomerFromFileName(fileName) || "Customer";
+      const customerEmail = findInfo("Email");
       const customerAddress = findInfo("Customer Address") || findInfo("Address");
       const estimateNotes = findInfo("Notes");
       const estimateType = findInfo("Estimate Type").toLowerCase();
@@ -624,6 +625,7 @@ export default function QuoteList() {
           refEstNumber: (String(fileName).match(/Est\s+(\d+)/i) || [])[1] || "",
           invoiceType: "services",
           customer,
+          customerEmail,
           customerAddress,
           notes: estimateNotes,
           draftForLabel,

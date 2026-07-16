@@ -194,10 +194,10 @@ export default function Settings() {
       <div className="settings-card">
         <h3>Document Counters</h3>
         <p style={{ marginBottom: "15px", opacity: 0.8, fontSize: "14px" }}>
-          Set the next estimate and invoice numbers. These will auto-increment with each new document.
+          Set the current estimate and invoice numbers. New documents use the next number (for example, entering 505 creates invoice 506).
         </p>
 
-        <label>Next Estimate Number</label>
+        <label>Current Estimate Number</label>
         <input
           type="number"
           value={nextEstimateNumber}
@@ -205,7 +205,7 @@ export default function Settings() {
           min="500"
         />
 
-        <label>Next Invoice Number</label>
+        <label>Current Invoice Number</label>
         <input
           type="number"
           value={nextInvoiceNumber}
