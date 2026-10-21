@@ -20,6 +20,7 @@ import {
 } from "../utils/oneDriveGraph";
 import { allocateDocumentNumber } from "../utils/documentCounters";
 import { activeOneDriveFolder } from "../utils/oneDrivePaths";
+import { activeMailFrom } from "../utils/mailAccounts";
 
 const MAX_WHEEL_LINES = 50;
 const CUSTOMER_KEY_WHEEL = "wheel_customer_names";
@@ -165,6 +166,10 @@ function saveJsonToStorage(key, value) {
 function emailErrorMessage(result) {
   if (!result) return "Could not send email.";
   if (result.reason === "not-configured") return "Email is not configured. Check Azure app settings.";
+  if (result.reason === "mail-signin-required") {
+    const from = result.senderAddress || activeMailFrom();
+    return `Choose ${from} on the Microsoft page, accept Send mail, then press Send again. OneDrive stays on your other account.`;
+  }
   if (result.reason === "auth-failed") {
     const extra = result.details ? ` ${result.details}` : "";
     return `Sign-in/consent failed.${extra}`;
@@ -1444,6 +1449,7 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
         <div className="modal">
           <div className="modal-content">
             <h3>Email Invoice</h3>
+            <p><strong>From:</strong> {activeMailFrom()}</p>
             <p><strong>Attachment:</strong> {emailFile}</p>
             <p style={{ marginTop: "-6px", color: "#4a4a4a", fontSize: "12px" }}>
               Source: {graphMode

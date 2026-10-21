@@ -78,6 +78,9 @@ export default function App() {
         <h1 className="brand-title">Wrights L.C.</h1>
         <p>Access denied for this account.</p>
         <p style={{ opacity: 0.85 }}>Signed in: {activeEmail || "Unknown"}</p>
+        <p style={{ opacity: 0.85 }}>
+          Open the app with {allowedEmails.join(", ") || "the OneDrive account"}. The sending mailbox is signed in separately when you email a file.
+        </p>
         <button className="btn-secondary" onClick={() => signOutRedirect()}>
           Sign Out
         </button>

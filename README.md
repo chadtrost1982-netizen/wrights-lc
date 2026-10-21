@@ -113,10 +113,43 @@ In Azure app registration -> Authentication -> Single-page application:
 
 ### 5) Test live
 
-1. Open app URL on desktop and phone.
-2. Sign in once.
-3. Save estimate/invoice to confirm OneDrive upload.
-4. Send test estimate email and confirm `Graph 202`.
+1. Open the app on the PC and on the phone.
+2. Sign in as `chadtrost@hotmail.com` when Microsoft asks. That account is OneDrive.
+3. Save an estimate or invoice and confirm it lands in the Disposal Solutions folder on that OneDrive.
+4. Email a test file. The first time on each browser, sign in as `disposalsolutions@outlook.com` and accept Send mail. The alert should say it was sent from that address. See the checklist below.
+
+## Sending email from Disposal Solutions
+
+Invoices and estimates go out from `disposalsolutions@outlook.com`. OneDrive saves stay on `chadtrost@hotmail.com`. A personal Outlook mailbox cannot send mail as a different address, so the same browser holds two Microsoft sign-ins. The existing Azure app is reused. There is no new app, no client secret, and no Vercel change.
+
+Do not add `disposalsolutions@outlook.com` to `VITE_ALLOWED_EMAILS` or `ALLOWED_EMAILS`.
+
+Do this once on the PC, then once on the phone. Each browser remembers the sign-in on its own.
+
+1. Open `https://wrights-lc.vercel.app`.
+2. If Microsoft shows **Pick an account**, click `chadtrost@hotmail.com`. If that address is missing, click **Use another account**, type `chadtrost@hotmail.com`, and sign in. Confirm the app opens and does not say Access denied.
+3. Open an estimate or invoice and start an email. Confirm the form says **From:** `disposalsolutions@outlook.com`.
+4. Fill in To, then click **Send Email**.
+5. Microsoft shows **Pick an account** again. Click `disposalsolutions@outlook.com`. If it is missing, click **Use another account**, type `disposalsolutions@outlook.com`, and enter that mailbox’s password.
+6. Microsoft shows **Permissions requested**. The list should include sending mail. Click **Accept**.
+7. The app comes back. Click **Send Email** again. Confirm the alert says the email was sent from `disposalsolutions@outlook.com`.
+8. In a browser, open [https://outlook.live.com](https://outlook.live.com) and sign in as `disposalsolutions@outlook.com`. Open **Sent Items**. Confirm the message is there and the customer sees that From address.
+9. Save a new estimate. Confirm the file appears in Chad’s OneDrive at `Desktop/Business/Disposal Solutions/Estimates`, not in the business mailbox’s OneDrive.
+
+Later sends on that same browser skip steps 5 and 6.
+
+### Only if Accept is missing or Microsoft says the app cannot send mail
+
+Skip this when step 6 already shows Send mail and Accept works. Do not create a new registration and do not add a secret.
+
+1. Open [https://portal.azure.com](https://portal.azure.com).
+2. In the search box at the top, type `App registrations` and open it.
+3. Open the existing quoting app. Match **Application (client) ID** to `VITE_AZURE_CLIENT_ID`. Do not click **New registration**.
+4. Left menu, **Authentication**. Under **Supported account types**, select **Accounts in any organizational directory and personal Microsoft accounts** if it is not already selected. Click **Save** only if you changed it. Confirm the sentence on that page includes personal Microsoft accounts.
+5. Left menu, **API permissions**. If `Mail.Send` is already in the table as Microsoft Graph / Delegated, stop. If it is missing, click **Add a permission**, then **Microsoft Graph**, then **Delegated permissions**, search `Mail.Send`, check `Mail.Send`, and click **Add permissions**. Do not click **Grant admin consent**.
+6. Leave **Certificates & secrets** alone.
+
+No redeploy is required after that. Repeat the send steps above.
 
 ## Save Behavior
 
