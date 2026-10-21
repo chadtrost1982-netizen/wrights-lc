@@ -123,6 +123,21 @@ export async function signOutRedirect() {
   });
 }
 
+async function getFilesTokenSilent() {
+  const app = getMsalApp();
+  if (!app) return null;
+  try {
+    await initializeOneDriveAuth();
+    const account = app.getActiveAccount() || app.getAllAccounts()[0] || null;
+    if (!account) return null;
+    app.setActiveAccount(account);
+    const silent = await app.acquireTokenSilent({ account, scopes: [fileScope] });
+    return silent?.accessToken || null;
+  } catch {
+    return null;
+  }
+}
+
 async function getAccessToken(scopes = [fileScope]) {
   const app = getMsalApp();
   if (!app) return null;
@@ -578,9 +593,9 @@ export function createCounterDrive() {
         err.code = "not-configured";
         throw err;
       }
-      const token = await getAccessToken([fileScope]);
+      const token = await getFilesTokenSilent();
       if (!token) {
-        const err = new Error("Sign in is required to share invoice and estimate numbers.");
+        const err = new Error("Sign in with Microsoft to share invoice and estimate numbers. Until then, these are the last numbers on this device.");
         err.code = "auth-failed";
         throw err;
       }
@@ -609,9 +624,9 @@ export function createCounterDrive() {
     },
 
     async write({ etag, create, value }) {
-      const token = await getAccessToken([fileScope]);
+      const token = await getFilesTokenSilent();
       if (!token) {
-        const err = new Error("Sign in is required to share invoice and estimate numbers.");
+        const err = new Error("Sign in with Microsoft to share invoice and estimate numbers. Until then, these are the last numbers on this device.");
         err.code = "auth-failed";
         throw err;
       }
