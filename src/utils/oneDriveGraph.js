@@ -1,16 +1,17 @@
 import { PublicClientApplication } from "@azure/msal-browser";
+import { activeCountersPath, activeOneDriveFolder, parentDriveFolder } from "./oneDrivePaths.js";
+import { encodeGraphPath, ensureDriveFolder } from "./ensureDriveFolder.js";
+import { activeMailFrom, normalizeEmail, pickAccounts } from "./mailAccounts.js";
 
 const clientId = import.meta.env.VITE_AZURE_CLIENT_ID || "";
 const tenantId = import.meta.env.VITE_AZURE_TENANT_ID || "common";
 const redirectUri = import.meta.env.VITE_AZURE_REDIRECT_URI || window.location.origin;
-const legacyTargetPath = import.meta.env.VITE_ONEDRIVE_TARGET_PATH || "";
-const estimatesTargetPath = import.meta.env.VITE_ONEDRIVE_ESTIMATES_PATH || "";
-const invoicesTargetPath = import.meta.env.VITE_ONEDRIVE_INVOICES_PATH || "";
 
 const fileScope = "Files.ReadWrite";
 const mailScope = "Mail.Send";
-const mailReadWriteScope = "Mail.ReadWrite";
 const basicScope = "User.Read";
+const driveScopes = [basicScope, fileScope];
+const mailScopes = [basicScope, mailScope];
 const graphEndpoint = "https://graph.microsoft.com/v1.0";
 const PENDING_UPLOAD_KEY = "wrights_pending_onedrive_upload";
 const SAVE_NOTICE_KEY = "wrights_save_notice";
@@ -29,6 +30,26 @@ function withTimeout(promise, ms, label) {
   return Promise.race([promise, timeout]).finally(() => {
     if (timer) clearTimeout(timer);
   });
+}
+
+function allowedEmailList() {
+  return String(import.meta.env.VITE_ALLOWED_EMAILS || "")
+    .split(",")
+    .map((value) => normalizeEmail(value))
+    .filter(Boolean);
+}
+
+function accountChoices(app) {
+  return pickAccounts(app.getAllAccounts(), {
+    allow: allowedEmailList(),
+    mailFrom: activeMailFrom(),
+  });
+}
+
+function useDriveAccount(app) {
+  const { drive } = accountChoices(app);
+  if (drive) app.setActiveAccount(drive);
+  return drive || null;
 }
 
 function getMsalApp() {
@@ -68,7 +89,11 @@ export async function initializeOneDriveAuth() {
         lastRedirectError = err?.message || String(err || "Redirect auth failed");
         return null;
       });
-      if (redirectResult?.account) app.setActiveAccount(redirectResult.account);
+      const drive = useDriveAccount(app);
+      const redirectEmail = normalizeEmail(redirectResult?.account?.username);
+      if (!drive && redirectResult?.account && redirectEmail && redirectEmail !== activeMailFrom()) {
+        app.setActiveAccount(redirectResult.account);
+      }
     })();
   }
   await msalInitPromise;
@@ -78,20 +103,34 @@ export async function getSignedInEmail() {
   const app = getMsalApp();
   if (!app) return "";
   await initializeOneDriveAuth();
-  const active = app.getActiveAccount();
-  const fallback = app.getAllAccounts()[0] || null;
-  const account = active || fallback;
+  const account = useDriveAccount(app);
   if (!account) return "";
-  app.setActiveAccount(account);
-  return String(account.username || account.name || "").trim();
+  return String(account.username || "").trim();
+}
+
+export async function getIdToken() {
+  const app = getMsalApp();
+  if (!app) return "";
+  try {
+    await initializeOneDriveAuth();
+    const account = useDriveAccount(app);
+    if (!account) return "";
+    const silent = await app.acquireTokenSilent({ account, scopes: [basicScope] });
+    return silent?.idToken || "";
+  } catch {
+    return "";
+  }
 }
 
 export async function beginSignInRedirect() {
   const app = getMsalApp();
   if (!app) return { ok: false, reason: "not-configured" };
   await initializeOneDriveAuth();
+  const allow = allowedEmailList();
   await app.loginRedirect({
-    scopes: [basicScope, fileScope, mailScope, mailReadWriteScope],
+    scopes: driveScopes,
+    loginHint: allow.length === 1 ? allow[0] : undefined,
+    prompt: "select_account",
     redirectUri,
     redirectStartPage: window.location.href,
   });
@@ -102,11 +141,25 @@ export async function signOutRedirect() {
   const app = getMsalApp();
   if (!app) return;
   await initializeOneDriveAuth();
-  const account = app.getActiveAccount() || app.getAllAccounts()[0] || undefined;
+  const account = useDriveAccount(app) || app.getActiveAccount() || undefined;
   await app.logoutRedirect({
     account,
     postLogoutRedirectUri: redirectUri,
   });
+}
+
+async function getFilesTokenSilent() {
+  const app = getMsalApp();
+  if (!app) return null;
+  try {
+    await initializeOneDriveAuth();
+    const account = useDriveAccount(app);
+    if (!account) return null;
+    const silent = await app.acquireTokenSilent({ account, scopes: [fileScope] });
+    return silent?.accessToken || null;
+  } catch {
+    return null;
+  }
 }
 
 async function getAccessToken(scopes = [fileScope]) {
@@ -120,10 +173,7 @@ async function getAccessToken(scopes = [fileScope]) {
     throw new Error(message);
   }
 
-  const active = app.getActiveAccount();
-  const fallback = app.getAllAccounts()[0] || null;
-  let account = active || fallback;
-  if (account) app.setActiveAccount(account);
+  const account = useDriveAccount(app);
 
   if (account) {
     try {
@@ -132,7 +182,6 @@ async function getAccessToken(scopes = [fileScope]) {
     } catch (err) {
       const code = String(err?.errorCode || "").toLowerCase();
       const msg = String(err?.message || "").toLowerCase();
-      const needsMailConsent = scopes.includes(mailScope) || scopes.includes(mailReadWriteScope);
       const interactionRequired =
         code.includes("interaction_required") ||
         code.includes("consent_required") ||
@@ -151,17 +200,9 @@ async function getAccessToken(scopes = [fileScope]) {
         throw new Error("Authentication still pending. Please try again in a few seconds.");
       }
       lastInteractiveAttemptAt = now;
-      if (needsMailConsent) {
-        try {
-          await app.clearCache({ account });
-        } catch {
-          // ignore cache clear failures
-        }
-      }
       await app.acquireTokenRedirect({
         scopes,
         account,
-        prompt: needsMailConsent ? "consent" : undefined,
         redirectUri,
         redirectStartPage: window.location.href,
       });
@@ -180,23 +221,7 @@ async function getAccessToken(scopes = [fileScope]) {
 }
 
 function resolveTargetPath(kind = "invoice") {
-  const hasSplitConfig = Boolean(estimatesTargetPath || invoicesTargetPath);
-  if (kind === "estimate") {
-    if (estimatesTargetPath) return estimatesTargetPath;
-    // If split mode is enabled, never silently fall back to invoices for estimates.
-    if (hasSplitConfig) return "";
-    return legacyTargetPath;
-  }
-  if (invoicesTargetPath) return invoicesTargetPath;
-  return legacyTargetPath;
-}
-
-function encodeGraphPath(path) {
-  const cleanPath = String(path || "").replace(/^\/+|\/+$/g, "");
-  return cleanPath
-    .split("/")
-    .map((segment) => encodeURIComponent(segment))
-    .join("/");
+  return activeOneDriveFolder(kind);
 }
 
 function buildUploadUrl(fileName, kind = "invoice") {
@@ -277,6 +302,13 @@ export async function uploadBlobToOneDrive(fileName, blob, kind = "invoice") {
 
   const url = buildUploadUrl(fileName, kind);
   if (!url) return { ok: false, reason: "invalid-path" };
+
+  const folderReady = await ensureDriveFolder(fetch, {
+    graphEndpoint,
+    token,
+    folderPath: resolveTargetPath(kind),
+  });
+  if (!folderReady.ok) return folderReady;
 
   const res = await fetch(url, {
     method: "PUT",
@@ -407,6 +439,70 @@ function parseJwtClaims(token) {
   }
 }
 
+function needsInteraction(err) {
+  const code = String(err?.errorCode || "").toLowerCase();
+  const msg = String(err?.message || "").toLowerCase();
+  return (
+    code.includes("interaction_required") ||
+    code.includes("consent_required") ||
+    code.includes("invalid_grant") ||
+    code.includes("login_required") ||
+    msg.includes("interaction_required") ||
+    msg.includes("consent_required") ||
+    msg.includes("invalid_grant") ||
+    msg.includes("login_required")
+  );
+}
+
+async function beginMailSignIn(app, account) {
+  const now = Date.now();
+  const senderAddress = activeMailFrom();
+  if (now - lastInteractiveAttemptAt < 30000) {
+    return {
+      ok: false,
+      reason: "mail-signin-required",
+      senderAddress,
+      details: "The Microsoft sign-in page is already opening. Finish it, then press Send again.",
+    };
+  }
+  lastInteractiveAttemptAt = now;
+  sessionStorage.setItem(MAIL_CONSENT_ATTEMPT_KEY, String(now));
+  await app.loginRedirect({
+    scopes: mailScopes,
+    account: account || undefined,
+    loginHint: senderAddress,
+    prompt: account ? "consent" : "select_account",
+    redirectUri,
+    redirectStartPage: window.location.href,
+  });
+  return {
+    ok: false,
+    reason: "mail-signin-required",
+    senderAddress,
+    details: "Sign in as the sending mailbox, accept Send mail, then press Send again.",
+  };
+}
+
+async function getMailToken() {
+  const app = getMsalApp();
+  if (!app) return { ok: false, reason: "not-configured" };
+  await initializeOneDriveAuth();
+  const { mailAccount } = accountChoices(app);
+  useDriveAccount(app);
+  if (!mailAccount) return beginMailSignIn(app, null);
+  try {
+    const silent = await app.acquireTokenSilent({ account: mailAccount, scopes: mailScopes });
+    useDriveAccount(app);
+    if (!silent?.accessToken) {
+      return { ok: false, reason: "auth-failed", senderAddress: activeMailFrom() };
+    }
+    return { ok: true, token: silent.accessToken };
+  } catch (err) {
+    if (!needsInteraction(err)) throw err;
+    return beginMailSignIn(app, mailAccount);
+  }
+}
+
 export async function sendGraphEmailWithAttachment({
   to,
   cc = "",
@@ -419,14 +515,14 @@ export async function sendGraphEmailWithAttachment({
     if (!clientId) return { ok: false, reason: "not-configured" };
     if (!to || !subject || !fileName || !blob) return { ok: false, reason: "invalid-input" };
 
-    const token = await withTimeout(
-      getAccessToken([basicScope, mailScope, mailReadWriteScope, fileScope]),
-      90000,
-      "Authentication"
-    );
-    if (!token) return { ok: false, reason: "auth-failed" };
-
-    let senderAddress = "";
+    const mailAuth = await withTimeout(getMailToken(), 90000, "Authentication");
+    if (!mailAuth?.token) {
+      return mailAuth?.reason
+        ? mailAuth
+        : { ok: false, reason: "auth-failed", senderAddress: activeMailFrom() };
+    }
+    const token = mailAuth.token;
+    let senderAddress = activeMailFrom();
     try {
       const meRes = await fetch(`${graphEndpoint}/me?$select=mail,userPrincipalName`, {
         method: "GET",
@@ -434,10 +530,10 @@ export async function sendGraphEmailWithAttachment({
       });
       if (meRes.ok) {
         const me = await meRes.json();
-        senderAddress = String(me?.mail || me?.userPrincipalName || "").trim();
+        senderAddress = String(me?.mail || me?.userPrincipalName || senderAddress).trim();
       }
     } catch {
-      // best effort only
+      // The send still uses the business mailbox token.
     }
 
     const arrayBuffer = await blob.arrayBuffer();
@@ -486,36 +582,14 @@ export async function sendGraphEmailWithAttachment({
       body: JSON.stringify(payload),
     });
     clearTimeout(abortTimer);
-
-    if ((res.status === 401 || res.status === 403) && senderAddress) {
-      res = await fetch(`${graphEndpoint}/users/${encodeURIComponent(senderAddress)}/sendMail`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
-      });
-    }
+    useDriveAccount(getMsalApp());
 
     if (!res.ok) {
       if (res.status === 401 || res.status === 403) {
         const app = getMsalApp();
-        const lastAttempt = Number(sessionStorage.getItem(MAIL_CONSENT_ATTEMPT_KEY) || "0");
-        const now = Date.now();
-        if (app && now - lastAttempt > 30000) {
-          sessionStorage.setItem(MAIL_CONSENT_ATTEMPT_KEY, String(now));
-          await app.acquireTokenRedirect({
-            scopes: [basicScope, mailScope, mailReadWriteScope, fileScope],
-            prompt: "consent",
-            redirectUri,
-            redirectStartPage: window.location.href,
-          });
-          return {
-            ok: false,
-            reason: "auth-failed",
-            details: "Consent refresh started. Please retry send after returning to the app.",
-          };
+        if (app) {
+          const { mailAccount } = accountChoices(app);
+          return beginMailSignIn(app, mailAccount);
         }
       }
       let details = "";
@@ -548,4 +622,96 @@ export async function sendGraphEmailWithAttachment({
       details: message,
     };
   }
+}
+
+export function isGraphClientConfigured() {
+  return Boolean(clientId);
+}
+
+function countersFilePath() {
+  return activeCountersPath();
+}
+
+export function sharedCounterPath() {
+  return countersFilePath();
+}
+
+export function createCounterDrive() {
+  const encoded = encodeGraphPath(countersFilePath());
+  const itemUrl = `${graphEndpoint}/me/drive/root:/${encoded}`;
+
+  return {
+    async read() {
+      if (!clientId) {
+        const err = new Error("Microsoft sign-in is not configured, so numbers stay on this device.");
+        err.code = "not-configured";
+        throw err;
+      }
+      const token = await getFilesTokenSilent();
+      if (!token) {
+        const err = new Error("Sign in with Microsoft to share invoice and estimate numbers. Until then, these are the last numbers on this device.");
+        err.code = "auth-failed";
+        throw err;
+      }
+      const metaRes = await fetch(itemUrl, { headers: { Authorization: `Bearer ${token}` } });
+      if (metaRes.status === 404) return { found: false };
+      if (!metaRes.ok) {
+        const err = new Error("Could not read the shared number counter on OneDrive. Check your connection and try again.");
+        err.code = "read-failed";
+        throw err;
+      }
+      const meta = await metaRes.json().catch(() => ({}));
+      const contentRes = await fetch(`${itemUrl}:/content`, { headers: { Authorization: `Bearer ${token}` } });
+      if (contentRes.status === 404) return { found: false };
+      if (!contentRes.ok) {
+        const err = new Error("Could not read the shared number counter on OneDrive. Check your connection and try again.");
+        err.code = "read-failed";
+        throw err;
+      }
+      const value = await contentRes.json().catch(() => null);
+      if (!value || typeof value !== "object") {
+        const err = new Error("The shared counter file on OneDrive could not be read. No new number was issued.");
+        err.code = "invalid-counter";
+        throw err;
+      }
+      return { found: true, etag: meta.eTag || contentRes.headers.get("etag") || "", value };
+    },
+
+    async write({ etag, create, value }) {
+      const token = await getFilesTokenSilent();
+      if (!token) {
+        const err = new Error("Sign in with Microsoft to share invoice and estimate numbers. Until then, these are the last numbers on this device.");
+        err.code = "auth-failed";
+        throw err;
+      }
+      const headers = {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      };
+      if (create) headers["If-None-Match"] = "*";
+      else if (etag) headers["If-Match"] = etag;
+      const folderReady = await ensureDriveFolder(fetch, {
+        graphEndpoint,
+        token,
+        folderPath: parentDriveFolder(countersFilePath()),
+      });
+      if (!folderReady.ok) {
+        const err = new Error("Could not create the Disposal Solutions folder on OneDrive. No new number was issued.");
+        err.code = "folder-create-failed";
+        throw err;
+      }
+      const res = await fetch(`${itemUrl}:/content`, {
+        method: "PUT",
+        headers,
+        body: JSON.stringify(value),
+      });
+      if (res.status === 409 || res.status === 412) return { ok: false, conflict: true };
+      if (!res.ok) {
+        const err = new Error("Could not save the shared number counter on OneDrive. No new number was issued.");
+        err.code = "write-failed";
+        throw err;
+      }
+      return { ok: true, conflict: false, etag: res.headers.get("etag") || "" };
+    },
+  };
 }

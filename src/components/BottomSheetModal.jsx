@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import "./BottomSheet.css";
 
 export default function BottomSheetModal({ item, onAdd, onClose }) {
@@ -7,14 +7,8 @@ export default function BottomSheetModal({ item, onAdd, onClose }) {
 
   if (!item) return null;
 
-  const applyMarkup = (cost) => {
-    if (!cost || cost === "Ask" || cost === "N/A") return cost;
-    const marked = Number(cost) + 150;
-    return Math.round(marked / 50) * 50;
-  };
-
-  const finalPrice =
-    typeof item.cost === "number" ? applyMarkup(item.cost) * qty : item.cost;
+  const unit = typeof item.sellPrice === "number" ? item.sellPrice : null;
+  const finalPrice = unit == null ? item.priceLabel : unit * qty;
 
   return (
     <div className="sheet-overlay" onClick={onClose}>
@@ -27,19 +21,8 @@ export default function BottomSheetModal({ item, onAdd, onClose }) {
         <h2 className="sheet-title">{item.name}</h2>
 
         <div className="sheet-row">
-          <span>Wholesale:</span>
-          <span>
-            {typeof item.cost === "number" ? `$${item.cost}` : item.cost}
-          </span>
-        </div>
-
-        <div className="sheet-row">
-          <span>Markup Price:</span>
-          <span>
-            {typeof item.cost === "number"
-              ? `$${applyMarkup(item.cost)}`
-              : item.cost}
-          </span>
+          <span>Price:</span>
+          <span>{unit == null ? item.priceLabel : `$${unit}`}</span>
         </div>
 
         <div className="sheet-row total-row">
@@ -64,9 +47,11 @@ export default function BottomSheetModal({ item, onAdd, onClose }) {
 
         <button
           className="sheet-add-btn"
+          disabled={unit == null}
           onClick={() => {
             onAdd({
-              ...item,
+              type: item.type,
+              name: item.name,
               qty,
               notes,
               finalPrice,

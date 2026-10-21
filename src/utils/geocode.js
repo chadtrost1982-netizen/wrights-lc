@@ -1,36 +1,33 @@
-export async function geocodeAddress(address) {
-  const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`;
-  const res = await fetch(url);
-  const data = await res.json();
-  if (!data[0]) return null;
+const clientCache = new Map();
 
-  return {
-    lat: parseFloat(data[0].lat),
-    lon: parseFloat(data[0].lon),
+export async function searchAddresses(query) {
+  const q = String(query || "").trim();
+  if (q.length < 3) return { results: [], error: "" };
+  const key = q.toLowerCase();
+  if (clientCache.has(key)) return clientCache.get(key);
+
+  let res;
+  try {
+    res = await fetch(`/api/geocode?q=${encodeURIComponent(q)}`);
+  } catch {
+    return { results: [], error: "Address search is unavailable right now. Enter kilometres manually." };
+  }
+  const data = await res.json().catch(() => ({}));
+  const payload = {
+    results: Array.isArray(data.results) ? data.results : [],
+    error: data.error || (res.ok ? "" : "Address search failed. Enter kilometres manually."),
   };
+  if (res.ok && payload.results.length) clientCache.set(key, payload);
+  return payload;
 }
 
-export async function getDistanceKm(start, end) {
-  const s = await geocodeAddress(start);
-  const e = await geocodeAddress(end);
-
-  if (!s || !e) return { km: null, s, e };
-
-  const R = 6371;
-  const dLat = ((e.lat - s.lat) * Math.PI) / 180;
-  const dLon = ((e.lon - s.lon) * Math.PI) / 180;
-
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos((s.lat * Math.PI) / 180) *
-      Math.cos((e.lat * Math.PI) / 180) *
-      Math.sin(dLon / 2) ** 2;
-
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-  return {
-    km: Math.round(R * c),
-    s,
-    e,
-  };
+export async function geocodeAddress(address) {
+  if (address && typeof address === "object" && Number.isFinite(Number(address.lat)) && Number.isFinite(Number(address.lon))) {
+    return { lat: Number(address.lat), lon: Number(address.lon) };
+  }
+  const query = typeof address === "string" ? address : address?.address || "";
+  const found = await searchAddresses(query);
+  const first = found.results?.[0];
+  if (!first) return null;
+  return { lat: first.lat, lon: first.lon, label: first.label || "" };
 }

@@ -10,6 +10,8 @@ import {
   listOneDriveFiles,
   sendGraphEmailWithAttachment,
 } from "../utils/oneDriveGraph";
+import { activeOneDriveFolder } from "../utils/oneDrivePaths";
+import { activeMailFrom } from "../utils/mailAccounts";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 
@@ -89,6 +91,10 @@ function sentBadgeLabel(stamp) {
 function emailErrorMessage(result) {
   if (!result) return "Could not send email.";
   if (result.reason === "not-configured") return "Email is not configured. Check Azure app settings.";
+  if (result.reason === "mail-signin-required") {
+    const from = result.senderAddress || activeMailFrom();
+    return `Choose ${from} on the Microsoft page, accept Send mail, then press Send again. OneDrive stays on your other account.`;
+  }
   if (result.reason === "auth-failed") {
     const extra = result.details ? ` ${result.details}` : "";
     return `Sign-in/consent failed.${extra}`;
@@ -338,7 +344,7 @@ export default function QuoteList() {
       const graphList = await listOneDriveFiles("estimate", "Est");
       if (graphList.ok) {
         setEstimateFiles(graphList.files || []);
-        setFolderName("OneDrive (Estimates)");
+        setFolderName(`OneDrive: ${activeOneDriveFolder("estimate")}`);
         setEstimateSource("onedrive");
         return;
       }
@@ -375,7 +381,7 @@ export default function QuoteList() {
       const existing = await loadEstimateDirectoryHandle();
       if (!existing && window.showDirectoryPicker) {
         const shouldPick = confirm(
-          "Select your Estimates folder now (recommended: C:\\Users\\chadt\\OneDrive\\Desktop\\Business\\WRIGHTS LC\\Estimates)?"
+          "Select your Estimates folder now (recommended: C:\\Users\\chadt\\OneDrive\\Desktop\\Business\\Disposal Solutions\\Estimates)?"
         );
         if (shouldPick) {
           try {
@@ -711,6 +717,7 @@ export default function QuoteList() {
         <div className="modal">
           <div className="modal-content">
             <h3>Email Estimate</h3>
+            <p><strong>From:</strong> {activeMailFrom()}</p>
             <p><strong>Attachment:</strong> {displayEmailAttachmentName(emailFile)}</p>
             <label>Customer</label>
             <input

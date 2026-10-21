@@ -18,9 +18,10 @@ import {
   sendGraphEmailWithAttachment,
   uploadBlobToOneDrive,
 } from "../utils/oneDriveGraph";
+import { allocateDocumentNumber } from "../utils/documentCounters";
+import { activeOneDriveFolder } from "../utils/oneDrivePaths";
+import { activeMailFrom } from "../utils/mailAccounts";
 
-const INVOICE_COUNTER_KEY = "wrights_invoice_counter";
-const WHEEL_INVOICE_START = 492;
 const MAX_WHEEL_LINES = 50;
 const CUSTOMER_KEY_WHEEL = "wheel_customer_names";
 const CUSTOMER_KEY_SERVICE = "service_customer_names";
@@ -84,15 +85,6 @@ function toNumber(v) {
 function findRefEstNumber(name) {
   const m = String(name || "").match(/Est\s+(\d+)/i);
   return m ? m[1] : "";
-}
-
-function nextInvoiceNumber() {
-  const stored = localStorage.getItem(INVOICE_COUNTER_KEY);
-  const baseline = WHEEL_INVOICE_START - 1;
-  const current = Number.isFinite(Number(stored)) ? Number(stored) : baseline;
-  const next = current + 1;
-  localStorage.setItem(INVOICE_COUNTER_KEY, String(next));
-  return String(next);
 }
 
 function inferCustomerFromWheel(lines) {
@@ -174,6 +166,10 @@ function saveJsonToStorage(key, value) {
 function emailErrorMessage(result) {
   if (!result) return "Could not send email.";
   if (result.reason === "not-configured") return "Email is not configured. Check Azure app settings.";
+  if (result.reason === "mail-signin-required") {
+    const from = result.senderAddress || activeMailFrom();
+    return `Choose ${from} on the Microsoft page, accept Send mail, then press Send again. OneDrive stays on your other account.`;
+  }
   if (result.reason === "auth-failed") {
     const extra = result.details ? ` ${result.details}` : "";
     return `Sign-in/consent failed.${extra}`;
@@ -455,8 +451,7 @@ async function buildStyledExcelBlob(saveRows, options = {}) {
 }
 
 export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder = true, showCreate = true }) {
-  const oneDriveInvoicesPath = String(import.meta.env.VITE_ONEDRIVE_INVOICES_PATH || "").trim();
-  const oneDriveLegacyPath = String(import.meta.env.VITE_ONEDRIVE_TARGET_PATH || "").trim();
+  const oneDriveInvoicesPath = activeOneDriveFolder("invoice");
   const graphMode = isOneDriveGraphConfigured("invoice");
   const [invoiceType, setInvoiceType] = useState("wheel");
   const [fileName, setFileName] = useState("");
@@ -525,7 +520,7 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
       const listed = await listOneDriveFiles("invoice", "");
       if (listed.ok) {
         setFolderFiles(listed.files || []);
-        setFolderName(`OneDrive: ${oneDriveInvoicesPath || oneDriveLegacyPath || "(invoices path not configured)"}`);
+        setFolderName(`OneDrive: ${oneDriveInvoicesPath}`);
         return;
       }
     }
@@ -533,7 +528,7 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
     let handle = await loadAutoSaveDirectoryHandle();
     if (!handle && !graphMode && window.showDirectoryPicker) {
       const shouldPick = confirm(
-        "Select your Invoices folder now (recommended: C:\\Users\\chadt\\OneDrive\\Desktop\\Business\\WRIGHTS LC\\Invoices)?"
+        "Select your Invoices folder now (recommended: C:\\Users\\chadt\\OneDrive\\Desktop\\Business\\Disposal Solutions\\Invoices)?"
       );
       if (shouldPick) {
         try {
@@ -629,8 +624,8 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
     saveJsonToStorage(workPresetKey, workList);
   };
 
-  const buildInvoiceBaseName = (saveRows, linesForCustomer) => {
-    const invoiceNumber = nextInvoiceNumber();
+  const buildInvoiceBaseName = async (saveRows, linesForCustomer) => {
+    const invoiceNumber = await allocateDocumentNumber("invoice");
     const ref = String(refEstNumber || "").trim();
     if (isWheelStyle) {
       if (invoiceType === "services") {
@@ -785,7 +780,7 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
       learnWheelValues(wheelLines);
     }
 
-    const baseName = buildInvoiceBaseName(saveRows, wheelLines);
+    const baseName = await buildInvoiceBaseName(saveRows, wheelLines);
     const invoiceNumber = (baseName.match(/^Inv\s+(\d+)/i) || [])[1] || "";
     const invoiceDate = new Date().toLocaleDateString("en-CA", { year: "numeric", month: "long", day: "numeric" });
     const printData = buildPrintRowsAndTotals(saveRows);
@@ -853,7 +848,7 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
         learnWheelValues(wheelLines);
       }
 
-      const baseInvoiceName = buildInvoiceBaseName(saveRows, wheelLines);
+      const baseInvoiceName = await buildInvoiceBaseName(saveRows, wheelLines);
       const pdfName = `${baseInvoiceName}.pdf`;
       const excelName = `${baseInvoiceName}.xlsx`;
       const invoiceNumber = (baseInvoiceName.match(/^Inv\s+(\d+)/i) || [])[1] || "";
@@ -1454,6 +1449,7 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
         <div className="modal">
           <div className="modal-content">
             <h3>Email Invoice</h3>
+            <p><strong>From:</strong> {activeMailFrom()}</p>
             <p><strong>Attachment:</strong> {emailFile}</p>
             <p style={{ marginTop: "-6px", color: "#4a4a4a", fontSize: "12px" }}>
               Source: {graphMode
