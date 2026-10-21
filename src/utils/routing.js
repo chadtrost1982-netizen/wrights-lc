@@ -1,42 +1,36 @@
-import { geocodeAddress } from "./geocode";
-
-const DEFAULT_OSRM_BASE_URL = "https://router.project-osrm.org";
-
-function getConfiguredOsrmBaseUrl() {
-  const raw = import.meta.env.VITE_OSRM_BASE_URL || DEFAULT_OSRM_BASE_URL;
-  return String(raw).replace(/\/+$/, "");
+async function postRoute(start, end) {
+  let res;
+  try {
+    res = await fetch("/api/route", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ start, end }),
+    });
+  } catch {
+    return { error: "Driving route is unavailable right now. Enter kilometres manually." };
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !Number.isFinite(Number(data.distanceKm))) {
+    return { error: data.error || "Could not calculate a driving route. Enter kilometres manually." };
+  }
+  return {
+    distanceKm: Number(data.distanceKm),
+    durationMin: Number(data.durationMin) || 0,
+    geometry: data.geometry || null,
+    s: data.start || null,
+    e: data.end || null,
+    provider: data.provider || "",
+  };
 }
 
 export async function getRoute(start, end) {
-  const baseUrl = getConfiguredOsrmBaseUrl();
-  const url = `${baseUrl}/route/v1/driving/${start.lon},${start.lat};${end.lon},${end.lat}?overview=full&geometries=geojson`;
-
-  const res = await fetch(url);
-  if (!res.ok) return null;
-  const data = await res.json();
-
-  if (!data.routes || !data.routes[0]) return null;
-
-  const route = data.routes[0];
-
-  return {
-    distanceKm: Math.round(route.distance / 1000),
-    durationMin: Math.round(route.duration / 60),
-    geometry: route.geometry,
-  };
+  return postRoute(start, end);
 }
 
-export async function getRouteByAddress(startAddress, endAddress) {
-  const s = await geocodeAddress(startAddress);
-  const e = await geocodeAddress(endAddress);
-  if (!s || !e) return null;
-
-  const route = await getRoute(s, e);
-  if (!route) return null;
-
-  return {
-    ...route,
-    s,
-    e,
+export async function getRouteByAddress(start, end) {
+  const normalize = (value) => {
+    if (typeof value === "string") return { address: value };
+    return value || {};
   };
+  return postRoute(normalize(start), normalize(end));
 }

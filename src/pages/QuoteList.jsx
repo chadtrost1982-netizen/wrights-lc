@@ -10,6 +10,7 @@ import {
   listOneDriveFiles,
   sendGraphEmailWithAttachment,
 } from "../utils/oneDriveGraph";
+import { activeOneDriveFolder } from "../utils/oneDrivePaths";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 
@@ -338,7 +339,7 @@ export default function QuoteList() {
       const graphList = await listOneDriveFiles("estimate", "Est");
       if (graphList.ok) {
         setEstimateFiles(graphList.files || []);
-        setFolderName("OneDrive (Estimates)");
+        setFolderName(`OneDrive: ${activeOneDriveFolder("estimate")}`);
         setEstimateSource("onedrive");
         return;
       }
@@ -375,7 +376,7 @@ export default function QuoteList() {
       const existing = await loadEstimateDirectoryHandle();
       if (!existing && window.showDirectoryPicker) {
         const shouldPick = confirm(
-          "Select your Estimates folder now (recommended: C:\\Users\\chadt\\OneDrive\\Desktop\\Business\\WRIGHTS LC\\Estimates)?"
+          "Select your Estimates folder now (recommended: C:\\Users\\chadt\\OneDrive\\Desktop\\Business\\Disposal Solutions\\Estimates)?"
         );
         if (shouldPick) {
           try {

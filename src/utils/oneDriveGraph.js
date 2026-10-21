@@ -1,11 +1,10 @@
 import { PublicClientApplication } from "@azure/msal-browser";
+import { activeCountersPath, activeOneDriveFolder, parentDriveFolder } from "./oneDrivePaths.js";
+import { encodeGraphPath, ensureDriveFolder } from "./ensureDriveFolder.js";
 
 const clientId = import.meta.env.VITE_AZURE_CLIENT_ID || "";
 const tenantId = import.meta.env.VITE_AZURE_TENANT_ID || "common";
 const redirectUri = import.meta.env.VITE_AZURE_REDIRECT_URI || window.location.origin;
-const legacyTargetPath = import.meta.env.VITE_ONEDRIVE_TARGET_PATH || "";
-const estimatesTargetPath = import.meta.env.VITE_ONEDRIVE_ESTIMATES_PATH || "";
-const invoicesTargetPath = import.meta.env.VITE_ONEDRIVE_INVOICES_PATH || "";
 
 const fileScope = "Files.ReadWrite";
 const mailScope = "Mail.Send";
@@ -84,6 +83,21 @@ export async function getSignedInEmail() {
   if (!account) return "";
   app.setActiveAccount(account);
   return String(account.username || account.name || "").trim();
+}
+
+export async function getIdToken() {
+  const app = getMsalApp();
+  if (!app) return "";
+  try {
+    await initializeOneDriveAuth();
+    const account = app.getActiveAccount() || app.getAllAccounts()[0] || null;
+    if (!account) return "";
+    app.setActiveAccount(account);
+    const silent = await app.acquireTokenSilent({ account, scopes: [basicScope] });
+    return silent?.idToken || "";
+  } catch {
+    return "";
+  }
 }
 
 export async function beginSignInRedirect() {
@@ -180,23 +194,7 @@ async function getAccessToken(scopes = [fileScope]) {
 }
 
 function resolveTargetPath(kind = "invoice") {
-  const hasSplitConfig = Boolean(estimatesTargetPath || invoicesTargetPath);
-  if (kind === "estimate") {
-    if (estimatesTargetPath) return estimatesTargetPath;
-    // If split mode is enabled, never silently fall back to invoices for estimates.
-    if (hasSplitConfig) return "";
-    return legacyTargetPath;
-  }
-  if (invoicesTargetPath) return invoicesTargetPath;
-  return legacyTargetPath;
-}
-
-function encodeGraphPath(path) {
-  const cleanPath = String(path || "").replace(/^\/+|\/+$/g, "");
-  return cleanPath
-    .split("/")
-    .map((segment) => encodeURIComponent(segment))
-    .join("/");
+  return activeOneDriveFolder(kind);
 }
 
 function buildUploadUrl(fileName, kind = "invoice") {
@@ -277,6 +275,13 @@ export async function uploadBlobToOneDrive(fileName, blob, kind = "invoice") {
 
   const url = buildUploadUrl(fileName, kind);
   if (!url) return { ok: false, reason: "invalid-path" };
+
+  const folderReady = await ensureDriveFolder(fetch, {
+    graphEndpoint,
+    token,
+    folderPath: resolveTargetPath(kind),
+  });
+  if (!folderReady.ok) return folderReady;
 
   const res = await fetch(url, {
     method: "PUT",
@@ -548,4 +553,96 @@ export async function sendGraphEmailWithAttachment({
       details: message,
     };
   }
+}
+
+export function isGraphClientConfigured() {
+  return Boolean(clientId);
+}
+
+function countersFilePath() {
+  return activeCountersPath();
+}
+
+export function sharedCounterPath() {
+  return countersFilePath();
+}
+
+export function createCounterDrive() {
+  const encoded = encodeGraphPath(countersFilePath());
+  const itemUrl = `${graphEndpoint}/me/drive/root:/${encoded}`;
+
+  return {
+    async read() {
+      if (!clientId) {
+        const err = new Error("Microsoft sign-in is not configured, so numbers stay on this device.");
+        err.code = "not-configured";
+        throw err;
+      }
+      const token = await getAccessToken([fileScope]);
+      if (!token) {
+        const err = new Error("Sign in is required to share invoice and estimate numbers.");
+        err.code = "auth-failed";
+        throw err;
+      }
+      const metaRes = await fetch(itemUrl, { headers: { Authorization: `Bearer ${token}` } });
+      if (metaRes.status === 404) return { found: false };
+      if (!metaRes.ok) {
+        const err = new Error("Could not read the shared number counter on OneDrive. Check your connection and try again.");
+        err.code = "read-failed";
+        throw err;
+      }
+      const meta = await metaRes.json().catch(() => ({}));
+      const contentRes = await fetch(`${itemUrl}:/content`, { headers: { Authorization: `Bearer ${token}` } });
+      if (contentRes.status === 404) return { found: false };
+      if (!contentRes.ok) {
+        const err = new Error("Could not read the shared number counter on OneDrive. Check your connection and try again.");
+        err.code = "read-failed";
+        throw err;
+      }
+      const value = await contentRes.json().catch(() => null);
+      if (!value || typeof value !== "object") {
+        const err = new Error("The shared counter file on OneDrive could not be read. No new number was issued.");
+        err.code = "invalid-counter";
+        throw err;
+      }
+      return { found: true, etag: meta.eTag || contentRes.headers.get("etag") || "", value };
+    },
+
+    async write({ etag, create, value }) {
+      const token = await getAccessToken([fileScope]);
+      if (!token) {
+        const err = new Error("Sign in is required to share invoice and estimate numbers.");
+        err.code = "auth-failed";
+        throw err;
+      }
+      const headers = {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      };
+      if (create) headers["If-None-Match"] = "*";
+      else if (etag) headers["If-Match"] = etag;
+      const folderReady = await ensureDriveFolder(fetch, {
+        graphEndpoint,
+        token,
+        folderPath: parentDriveFolder(countersFilePath()),
+      });
+      if (!folderReady.ok) {
+        const err = new Error("Could not create the Disposal Solutions folder on OneDrive. No new number was issued.");
+        err.code = "folder-create-failed";
+        throw err;
+      }
+      const res = await fetch(`${itemUrl}:/content`, {
+        method: "PUT",
+        headers,
+        body: JSON.stringify(value),
+      });
+      if (res.status === 409 || res.status === 412) return { ok: false, conflict: true };
+      if (!res.ok) {
+        const err = new Error("Could not save the shared number counter on OneDrive. No new number was issued.");
+        err.code = "write-failed";
+        throw err;
+      }
+      return { ok: true, conflict: false, etag: res.headers.get("etag") || "" };
+    },
+  };
 }

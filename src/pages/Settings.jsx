@@ -12,13 +12,15 @@ import {
   saveAutoSaveDirectoryHandle,
 } from "../utils/autoSaveFolder";
 import { useEffect } from "react";
+import { loadDocumentCounters, saveDocumentCounters } from "../utils/documentCounters";
+import { sharedCounterPath } from "../utils/oneDriveGraph";
+import { activeOneDriveFolder } from "../utils/oneDrivePaths";
 
 export default function Settings() {
-  const oneDriveEstimatesPath = String(import.meta.env.VITE_ONEDRIVE_ESTIMATES_PATH || "").trim();
-  const oneDriveInvoicesPath = String(import.meta.env.VITE_ONEDRIVE_INVOICES_PATH || "").trim();
-  const oneDriveLegacyPath = String(import.meta.env.VITE_ONEDRIVE_TARGET_PATH || "").trim();
+  const oneDriveEstimatesPath = activeOneDriveFolder("estimate");
+  const oneDriveInvoicesPath = activeOneDriveFolder("invoice");
   const graphClientId = String(import.meta.env.VITE_AZURE_CLIENT_ID || "").trim();
-  const graphMode = Boolean(graphClientId && (oneDriveEstimatesPath || oneDriveInvoicesPath || oneDriveLegacyPath));
+  const graphMode = Boolean(graphClientId);
 
   const {
     yardAddress,
@@ -33,32 +35,51 @@ export default function Settings() {
   } = useSettingsStore();
 
   const [dest, setDest] = useState("");
+  const [destPoint, setDestPoint] = useState(null);
   const [distance, setDistance] = useState(null);
+  const [manualKm, setManualKm] = useState("");
+  const [routeError, setRouteError] = useState("");
   const [coords, setCoords] = useState(null);
+  const [routeGeometry, setRouteGeometry] = useState(null);
   const [travelTime, setTravelTime] = useState(null);
   const [autoSaveFolderName, setAutoSaveFolderName] = useState("");
   const [estimateFolderName, setEstimateFolderName] = useState("");
   const [nextEstimateNumber, setNextEstimateNumber] = useState("");
   const [nextInvoiceNumber, setNextInvoiceNumber] = useState("");
+  const [counterNote, setCounterNote] = useState("");
 
   useEffect(() => {
-    // Load current counter values
-    const estCounter = localStorage.getItem("wrights_estimate_counter") || "500";
-    const invCounter = localStorage.getItem("wrights_invoice_counter") || "491";
-    setNextEstimateNumber(estCounter);
-    setNextInvoiceNumber(invCounter);
+    let active = true;
+    loadDocumentCounters().then((counters) => {
+      if (!active) return;
+      setNextEstimateNumber(String(counters.estimate));
+      setNextInvoiceNumber(String(counters.invoice));
+      if (counters.error) setCounterNote(counters.error);
+      else if (counters.shared) setCounterNote("These numbers are shared across your devices through OneDrive.");
+      else setCounterNote("OneDrive sign-in is not configured, so these numbers stay on this device.");
+    });
+    return () => {
+      active = false;
+    };
   }, []);
 
-  const saveCounters = () => {
+  const saveCounters = async () => {
     const estNum = parseInt(nextEstimateNumber, 10);
     const invNum = parseInt(nextInvoiceNumber, 10);
-    if (Number.isFinite(estNum) && estNum > 0) {
-      localStorage.setItem("wrights_estimate_counter", String(estNum));
+    try {
+      const result = await saveDocumentCounters({ estimate: estNum, invoice: invNum });
+      if (!result.ok) {
+        alert(result.error || "Could not save counters.");
+        if (result.estimate) setNextEstimateNumber(String(result.estimate));
+        if (result.invoice) setNextInvoiceNumber(String(result.invoice));
+        return;
+      }
+      setNextEstimateNumber(String(result.estimate));
+      setNextInvoiceNumber(String(result.invoice));
+      alert(result.shared ? "Counters saved for every device." : "Counters saved on this device.");
+    } catch (err) {
+      alert(err?.message || "Could not save counters.");
     }
-    if (Number.isFinite(invNum) && invNum > 0) {
-      localStorage.setItem("wrights_invoice_counter", String(invNum));
-    }
-    alert("Counters updated!");
   };
 
   useEffect(() => {
@@ -89,11 +110,16 @@ export default function Settings() {
   };
 
   const handleDistance = async () => {
-    const result = await getRouteByAddress(yardAddress, dest);
+    setRouteError("");
+    const end = destPoint && destPoint.label === dest
+      ? { address: dest, lat: destPoint.lat, lon: destPoint.lon }
+      : { address: dest };
+    const result = await getRouteByAddress({ address: yardAddress }, end);
     const km = result?.distanceKm ?? null;
 
     setDistance(km);
     setTravelTime(result?.durationMin ?? null);
+    setRouteGeometry(result?.geometry || null);
 
     if (result?.s && result?.e) {
       setCoords({
@@ -103,7 +129,12 @@ export default function Settings() {
     } else {
       setCoords(null);
     }
+    if (!km) {
+      setRouteError(result?.error || "Could not calculate a driving route. Enter kilometres manually.");
+    }
   };
+
+  const pricedKm = Number(manualKm) > 0 ? Number(manualKm) : distance;
 
   return (
     <div className="page">
@@ -194,7 +225,11 @@ export default function Settings() {
       <div className="settings-card">
         <h3>Document Counters</h3>
         <p style={{ marginBottom: "15px", opacity: 0.8, fontSize: "14px" }}>
-          Set the current estimate and invoice numbers. New documents use the next number (for example, entering 505 creates invoice 506).
+          This is the last number already used. The next document is one higher, on every signed-in device. Saved files are not renumbered. Estimate and invoice numbers are separate. New counters start at estimate 511 and invoice 509, because those numbers were already issued. You can raise a number if you already used a higher one, but it cannot go backwards.
+        </p>
+        {counterNote && <p style={{ marginBottom: "15px" }}>{counterNote}</p>}
+        <p style={{ marginBottom: "15px", opacity: 0.8, fontSize: "14px" }}>
+          Shared file: {sharedCounterPath()}
         </p>
 
         <label>Current Estimate Number</label>
@@ -225,11 +260,11 @@ export default function Settings() {
             <p><strong>OneDrive auto-save active</strong></p>
             <p>
               Invoices path:{" "}
-              {oneDriveInvoicesPath || oneDriveLegacyPath || "(not configured)"}
+              {oneDriveInvoicesPath}
             </p>
             <p>
               Estimates path:{" "}
-              {oneDriveEstimatesPath || oneDriveLegacyPath || "(not configured)"}
+              {oneDriveEstimatesPath}
             </p>
           </>
         ) : (
@@ -263,21 +298,39 @@ export default function Settings() {
         <label>Destination Address</label>
         <AddressAutocompleteInput
           value={dest}
-          onChange={setDest}
+          onChange={(address, picked) => {
+            setDest(address);
+            setDestPoint(
+              picked && Number.isFinite(Number(picked.lat))
+                ? { label: address, lat: Number(picked.lat), lon: Number(picked.lon) }
+                : null
+            );
+          }}
           placeholder="Enter customer address"
+        />
+
+        <label>Kilometres (optional override)</label>
+        <input
+          type="number"
+          min="0"
+          value={manualKm}
+          placeholder="Type kilometres if the route fails"
+          onChange={(e) => setManualKm(e.target.value)}
         />
 
         <button className="btn-primary" onClick={handleDistance}>
           Calculate Distance
         </button>
 
-        {distance !== null && (
+        {routeError && <p style={{ color: "#fca5a5" }}>{routeError}</p>}
+
+        {(pricedKm || distance) && (
           <div className="calc-results">
-            <p><strong>Distance:</strong> {distance} km</p>
+            <p><strong>Distance:</strong> {pricedKm || distance} km{Number(manualKm) > 0 ? " (entered manually)" : ""}</p>
             <p>
               <strong>20ft Delivery:</strong> $
               {calculateDeliveryAmount(
-                distance,
+                pricedKm,
                 delivery20Rate,
                 delivery20Min,
                 rounding
@@ -286,7 +339,7 @@ export default function Settings() {
             <p>
               <strong>40ft Delivery:</strong> $
               {calculateDeliveryAmount(
-                distance,
+                pricedKm,
                 delivery40Rate,
                 delivery40Min,
                 rounding
@@ -304,6 +357,7 @@ export default function Settings() {
 
         {coords?.s && coords?.e && (
           <InteractiveMap
+            geometry={routeGeometry}
             startCoords={[coords.s.lat, coords.s.lon]}
             endCoords={[coords.e.lat, coords.e.lon]}
           />

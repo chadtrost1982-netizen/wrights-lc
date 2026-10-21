@@ -13,9 +13,10 @@ import {
   writeBlobToEstimateFolder,
 } from "../utils/autoSaveFolder";
 import { clearPendingOneDriveUpload, queuePendingOneDriveUpload, uploadBlobToOneDrive } from "../utils/oneDriveGraph";
+import CatalogAccess from "../components/CatalogAccess";
+import { allocateDocumentNumber } from "../utils/documentCounters";
+import { useCatalog } from "../utils/useCatalog";
 
-const ESTIMATE_COUNTER_KEY = "wrights_estimate_counter";
-const ESTIMATE_START = 500;
 const SAVED_CUSTOMERS_KEY = "wrights_saved_customers";
 const SERVICE_WORK_PRESETS_KEY = "wrights_service_work_presets";
 const MAX_SERVICE_LINES = 50;
@@ -77,12 +78,17 @@ function toNumber(v) {
   return Number.isFinite(n) ? n : 0;
 }
 
-function nextEstimateNumber() {
-  const stored = localStorage.getItem(ESTIMATE_COUNTER_KEY);
-  const current = Number.isFinite(Number(stored)) ? Number(stored) : ESTIMATE_START - 1;
-  const next = current + 1;
-  localStorage.setItem(ESTIMATE_COUNTER_KEY, String(next));
-  return String(next);
+function optionId(sectionTitle, name) {
+  return `${sectionTitle}:::${name}`;
+}
+
+function findPricedItem(sections, value) {
+  for (const section of sections) {
+    for (const item of section.items || []) {
+      if (optionId(section.title, item.name) === value) return item;
+    }
+  }
+  return null;
 }
 
 export default function QuoteBuilder() {
@@ -95,6 +101,9 @@ export default function QuoteBuilder() {
     delivery40Min,
     rounding,
   } = useSettingsStore();
+  const catalogState = useCatalog();
+  const quickContainersBySection = catalogState.catalog?.quoteContainerSections || [];
+  const quickModsBySection = catalogState.catalog?.quoteModSections || [];
 
   const [customer, setCustomer] = useState({
     firstName: "",
@@ -104,6 +113,8 @@ export default function QuoteBuilder() {
     address: "",
     distance: "",
   });
+  const [addressPoint, setAddressPoint] = useState(null);
+  const manualDistanceRef = useRef(false);
   const [savedCustomers, setSavedCustomers] = useState([]);
   const [serviceWorkPresets, setServiceWorkPresets] = useState([]);
 
@@ -445,176 +456,6 @@ export default function QuoteBuilder() {
     return new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   };
 
-  const applyMarkup = (cost) => {
-    if (!cost || Number.isNaN(Number(cost))) return 0;
-    const marked = Number(cost) + 150;
-    return Math.round(marked / 50) * 50;
-  };
-
-  const quickContainersBySection = [
-    {
-      title: "10ft Containers",
-      items: [
-        { name: "10ft Cutdown Used - Barn Doors or Rollup", cost: 3000 },
-        { name: "10ft Cutdown One Trip - Barn Doors", cost: 3350 },
-        { name: "10ft Cutdown One Trip - Rollup", cost: 3550 },
-        { name: "10ft Factory One Trip (new)", cost: 4300 },
-      ],
-    },
-    {
-      title: "20ft Containers",
-      items: [
-        { name: "20ft Construction Grade", cost: 1400 },
-        { name: "20ft Mid Grade", cost: 1700 },
-        { name: "20ft Handpicked Used (Residential)", cost: 1900 },
-        { name: "20ft Multi-Trip (Wrinkle Walls)", cost: 2300 },
-        { name: "20ft One Trip New", cost: 2400 },
-        { name: "20ft One Trip (Grey)", cost: 2450 },
-        { name: "20ft Double Door One Trip", cost: 3400 },
-        { name: "20ft HC One Trip", cost: 3950 },
-        { name: "20ft Side Door One Trip", cost: 4900 },
-        { name: "20ft Full Openside One Trip", cost: 6200 },
-        { name: "20ft Non-Operating Reefer", cost: "N/A" },
-        { name: "20ft Used Pre-Tripped Reefer", cost: "N/A" },
-        { name: "20ft HC One Trip Insulated", cost: 13300 },
-      ],
-    },
-    {
-      title: "40ft Standard Containers",
-      items: [
-        { name: "40ft Std Used Rough Grade", cost: 1950 },
-        { name: "40ft Std Used Commercial", cost: 2200 },
-        { name: "40ft Std Used Residential", cost: 2300 },
-      ],
-    },
-    {
-      title: "40ft High Cube Containers",
-      items: [
-        { name: "40ft HC Used Rough Grade", cost: 1850 },
-        { name: "40ft HC Used Commercial", cost: 2200 },
-        { name: "40ft HC Used Residential", cost: 2400 },
-        { name: "40ft HC Multi-Trip (Wrinkle Walls)", cost: 3675 },
-        { name: "40ft HC One Trip (Beige)", cost: 3875 },
-        { name: "40ft HC Double Door Multi-Trip", cost: 4700 },
-        { name: "40ft HC Double Door One Trip", cost: 5250 },
-        { name: "40ft HC Side Door One Trip", cost: 7250 },
-        { name: "40ft HC Non-Operating Reefer", cost: 5600 },
-        { name: "40ft HC Pre-Tripped Reefer (CE Certified)", cost: 6600 },
-      ],
-    },
-    {
-      title: "Specialty Containers",
-      items: [
-        { name: "Office Containers (Various Builds)", cost: "N/A" },
-        { name: "20ft CW Flatrack", cost: 6300 },
-        { name: "40ft IICL Flatrack", cost: 8300 },
-        { name: "53ft HC Heater (As-Is)", cost: 3900 },
-        { name: "53ft HC Steel Used", cost: 5100 },
-      ],
-    },
-    {
-      title: "Certifications",
-      items: [
-        { name: "Certify & Prefix Used Container", cost: 350 },
-        { name: "Certify One Trip Container", cost: 300 },
-      ],
-    },
-  ];
-
-  const quickModsBySection = [
-    {
-      title: "Roll-up Doors",
-      items: [
-        { name: "6ft Wide", cost: 1550 },
-        { name: "8ft Wide", cost: 1750 },
-        { name: "10ft Wide", cost: 1950 },
-        { name: "Other Custom Sizes", cost: "Ask" },
-      ],
-    },
-    {
-      title: "Man Doors",
-      items: [
-        { name: '36" Steel Slab Non-Insulated', cost: 1550 },
-        { name: '36" Steel Slab Insulated', cost: 1650 },
-        { name: '36" Steel Slab w/ Window', cost: 2050 },
-        { name: '36" Steel 3-Piece Frame', cost: 2250 },
-        { name: '36" Freezer Door', cost: 4400 },
-        { name: "Fire-Rated / Panel / Patio / Custom", cost: "Ask" },
-      ],
-    },
-    {
-      title: "Windows",
-      items: [
-        { name: '36" x 36" Sliding Window', cost: 1200 },
-        { name: '48" x 36" Sliding Window', cost: 1300 },
-        { name: '48" x 48" Sliding Window', cost: 1400 },
-        { name: "Bars / Cage / Custom", cost: "Ask" },
-      ],
-    },
-    {
-      title: "Side Barn Doors",
-      items: [
-        { name: "Standard Height", cost: 2500 },
-        { name: "High Cube Height", cost: 2800 },
-      ],
-    },
-    {
-      title: "Security",
-      items: [
-        { name: "Lockbox", cost: 150 },
-        { name: "Lockbox Combo w/ Lock", cost: 175 },
-        { name: "Container Lock", cost: 30 },
-        { name: "Deadbolt Add-on", cost: 200 },
-      ],
-    },
-    {
-      title: "Vents",
-      items: [
-        { name: '12" x 12" Louver Vent (Door)', cost: 175 },
-        { name: '12" x 12" Louver Vent (Side)', cost: 375 },
-        { name: "Custom / Exhaust", cost: "Ask" },
-      ],
-    },
-    {
-      title: "Partition Walls",
-      items: [
-        { name: "Standard Height", cost: 825 },
-        { name: "High Cube Height", cost: 975 },
-      ],
-    },
-    {
-      title: "Spray Foam",
-      items: [
-        { name: '1"', cost: "1.75/sqft" },
-        { name: '2"', cost: "3.50/sqft" },
-        { name: '3"', cost: "5.25/sqft" },
-        { name: "Minimum Charge", cost: 1500 },
-      ],
-    },
-    {
-      title: "Painting",
-      items: [
-        { name: "20ft", cost: 850 },
-        { name: "20ft HC", cost: 900 },
-        { name: "40ft", cost: 1200 },
-        { name: "40ft HC", cost: 1300 },
-        { name: "45ft HC", cost: 1500 },
-        { name: "53ft HC", cost: 1900 },
-      ],
-    },
-    {
-      title: "Custom Mods",
-      items: [
-        { name: "Cutouts", cost: "Ask" },
-        { name: "Framing", cost: "Ask" },
-        { name: "Electrical", cost: "Ask" },
-        { name: "Cladding", cost: "Ask" },
-        { name: "Steel Floor", cost: "Ask" },
-        { name: "Forklift Pockets", cost: "Ask" },
-        { name: "Decals", cost: "Ask" },
-      ],
-    },
-  ];
   const requestSeq = useRef(0);
 
   const containerPrice = currentQuote.container
@@ -663,6 +504,7 @@ export default function QuoteBuilder() {
   );
 
   const calculateDelivery = async (silent = false) => {
+    if (manualDistanceRef.current) return;
     if (!customer.address.trim()) {
       if (!silent) alert("Enter a customer address first.");
       return;
@@ -673,13 +515,20 @@ export default function QuoteBuilder() {
     setRouteError("");
     setIsCalculatingDelivery(true);
     try {
-      const result = await getRouteByAddress(yardAddress, customer.address);
-      if (seq !== requestSeq.current) return;
+      const end = addressPoint && addressPoint.label === customer.address
+        ? { address: customer.address, lat: addressPoint.lat, lon: addressPoint.lon }
+        : { address: customer.address };
+      const start = yardCoords
+        ? { address: yardAddress, lat: yardCoords.lat, lon: yardCoords.lon }
+        : { address: yardAddress };
+      const result = await getRouteByAddress(start, end);
+      if (seq !== requestSeq.current || manualDistanceRef.current) return;
 
       if (!result?.distanceKm) {
+        const message = result?.error || "Could not calculate a driving route. Type kilometres in the distance box to quote anyway.";
         setRouteStatus("error");
-        setRouteError("Could not calculate route for that address.");
-        if (!silent) alert("Could not calculate distance for that address.");
+        setRouteError(message);
+        if (!silent) alert(message);
         return;
       }
 
@@ -687,7 +536,6 @@ export default function QuoteBuilder() {
       const use40 = deliveryTier === "40";
       const rate = use40 ? delivery40Rate : delivery20Rate;
       const min = use40 ? delivery40Min : delivery20Min;
-
       const amount = calculateDeliveryAmount(km, rate, min, rounding);
       const travelTimeMin = Number(result.durationMin) || 0;
 
@@ -698,8 +546,10 @@ export default function QuoteBuilder() {
         endAddress: customer.address,
         startCoords: result.s || null,
         endCoords: result.e || null,
+        geometry: result.geometry || null,
         km,
         travelTimeMin,
+        manual: false,
         tier: deliveryTier,
         rate,
         min,
@@ -714,19 +564,46 @@ export default function QuoteBuilder() {
     }
   };
 
+  const applyManualKilometres = (kmValue, tier = deliveryTier) => {
+    const km = Number(kmValue);
+    if (!Number.isFinite(km) || km <= 0) return;
+    const use40 = tier === "40";
+    const rate = use40 ? delivery40Rate : delivery20Rate;
+    const min = use40 ? delivery40Min : delivery20Min;
+    const amount = calculateDeliveryAmount(km, rate, min, rounding);
+    setDelivery(amount);
+    setDeliveryMeta((prev) => ({
+      ...(prev || {}),
+      endAddress: customer.address,
+      km,
+      manual: true,
+      travelTimeMin: null,
+      tier,
+      rate,
+      min,
+      rounding,
+      calculatedAmount: amount,
+    }));
+    setRouteError("");
+    setRouteStatus("ready");
+  };
+
   useEffect(() => {
     if (estimateType !== "container") return;
     const addr = customer.address.trim();
     if (addr.length < 8) {
-      setCustomer((prev) => ({ ...prev, distance: "" }));
-      setDeliveryMeta(null);
-      setRouteStatus("idle");
-      setRouteError("");
+      if (!manualDistanceRef.current) {
+        setCustomer((prev) => ({ ...prev, distance: "" }));
+        setDeliveryMeta(null);
+        setRouteStatus("idle");
+        setRouteError("");
+      }
       return;
     }
+    if (manualDistanceRef.current) return;
 
     const t = setTimeout(() => {
-      calculateDelivery(true);
+      if (!manualDistanceRef.current) calculateDelivery(true);
     }, 700);
 
     return () => clearTimeout(t);
@@ -795,11 +672,10 @@ export default function QuoteBuilder() {
         learnServiceWorkPresets(serviceLines);
       }
 
-      await appDB.quotes.add(quote);
-
       const customerName = `${quote.customer?.firstName || ""} ${quote.customer?.lastName || ""}`.trim() || "Customer";
       const safeName = customerName.replace(/[\\/:*?"<>|]/g, "").trim() || "Customer";
-      const estNumber = nextEstimateNumber();
+      const estNumber = await allocateDocumentNumber("estimate");
+      await appDB.quotes.add(quote);
 
       const quoteExcelBlob = await buildEstimateExcelBlob(quote, estNumber, customerName, "ESTIMATE");
       const quoteExcelFile = `Est ${estNumber} - ${safeName}.xlsx`;
@@ -833,37 +709,30 @@ export default function QuoteBuilder() {
   };
 
   const handleQuickContainerChange = (e) => {
-    const selectedName = e.target.value;
-    if (!selectedName) return;
-    const allContainers = quickContainersBySection.flatMap((section) => section.items);
-    const chosen = allContainers.find((c) => c.name === selectedName);
-    if (!chosen) return;
-    if (typeof chosen.cost !== "number") return;
+    const chosen = findPricedItem(quickContainersBySection, e.target.value);
+    if (!chosen?.purchasable) return;
 
     addToQuote({
       type: "container",
       name: chosen.name,
       qty: 1,
-      cost: chosen.cost,
-      finalPrice: applyMarkup(chosen.cost),
+      finalPrice: chosen.sellPrice,
       notes: "",
     });
+    if (manualDistanceRef.current) {
+      applyManualKilometres(customer.distance, detectDeliveryTier({ name: chosen.name }));
+    }
   };
 
   const handleQuickModChange = (e) => {
-    const selectedName = e.target.value;
-    if (!selectedName) return;
-    const allMods = quickModsBySection.flatMap((section) => section.items);
-    const chosen = allMods.find((m) => m.name === selectedName);
-    if (!chosen) return;
-    if (typeof chosen.cost !== "number") return;
+    const chosen = findPricedItem(quickModsBySection, e.target.value);
+    if (!chosen?.purchasable) return;
 
     addToQuote({
       type: "mod",
       name: chosen.name,
       qty: 1,
-      cost: chosen.cost,
-      finalPrice: applyMarkup(chosen.cost),
+      finalPrice: chosen.sellPrice,
       notes: "",
     });
 
@@ -904,6 +773,8 @@ export default function QuoteBuilder() {
     setNotes("");
     setRouteStatus("idle");
     setRouteError("");
+    setAddressPoint(null);
+    manualDistanceRef.current = false;
     setShowClearConfirm(false);
   };
 
@@ -929,9 +800,14 @@ export default function QuoteBuilder() {
             <input
               type="number"
               className="distance-compact"
-              placeholder="Distance (km)"
+              placeholder="Kilometres (type to override)"
+              title="Driving distance in kilometres. Type a number if the route cannot be calculated."
               value={customer.distance}
-              onChange={(e) => setCustomer({ ...customer, distance: e.target.value })}
+              onChange={(e) => {
+                manualDistanceRef.current = true;
+                setCustomer({ ...customer, distance: e.target.value });
+                applyManualKilometres(e.target.value);
+              }}
             />
           </div>
           <datalist id="saved-first-names">
@@ -988,19 +864,39 @@ export default function QuoteBuilder() {
 
           <AddressAutocompleteInput
             value={customer.address}
-            onChange={(address) => setCustomer({ ...customer, address })}
+            onChange={(address, picked) => {
+              manualDistanceRef.current = false;
+              setAddressPoint(
+                picked && Number.isFinite(Number(picked.lat)) && Number.isFinite(Number(picked.lon))
+                  ? { label: address, lat: Number(picked.lat), lon: Number(picked.lon) }
+                  : null
+              );
+              setCustomer((prev) => ({ ...prev, address }));
+            }}
             placeholder="Address"
           />
 
           {estimateType === "container" && (
             <>
               <h2 className="section-title">Selected Container</h2>
+          <CatalogAccess
+            loading={catalogState.loading}
+            error={catalogState.error}
+            needsPassword={catalogState.needsPassword}
+            onUnlock={catalogState.reload}
+          />
 
           <div className="quick-container-field">
             <label htmlFor="quick-container-select">Quick Select Container</label>
             <select
               id="quick-container-select"
-              value={currentQuote.container?.name || ""}
+              value={(() => {
+                const name = currentQuote.container?.name || "";
+                for (const section of quickContainersBySection) {
+                  if (section.items.some((item) => item.name === name)) return optionId(section.title, name);
+                }
+                return "";
+              })()}
               onChange={handleQuickContainerChange}
             >
               <option value="">Choose container...</option>
@@ -1008,11 +904,11 @@ export default function QuoteBuilder() {
                 <optgroup key={section.title} label={section.title}>
                   {section.items.map((c) => (
                     <option
-                      key={`${section.title}-${c.name}`}
-                      value={c.name}
-                      disabled={typeof c.cost !== "number"}
+                      key={optionId(section.title, c.name)}
+                      value={optionId(section.title, c.name)}
+                      disabled={!c.purchasable}
                     >
-                      {c.name} {typeof c.cost === "number" ? `- ${formatCurrency(applyMarkup(c.cost))}` : `- ${c.cost}`}
+                      {c.name} {c.purchasable ? `- ${formatCurrency(c.sellPrice)}` : `- ${c.priceLabel}`}
                     </option>
                   ))}
                 </optgroup>
@@ -1040,8 +936,8 @@ export default function QuoteBuilder() {
               {quickModsBySection.map((section) => (
                 <optgroup key={section.title} label={section.title}>
                   {section.items.map((m) => (
-                    <option key={`${section.title}-${m.name}`} value={m.name} disabled={typeof m.cost !== "number"}>
-                      {m.name} {typeof m.cost === "number" ? `- ${formatCurrency(applyMarkup(m.cost))}` : `- ${m.cost}`}
+                    <option key={optionId(section.title, m.name)} value={optionId(section.title, m.name)} disabled={!m.purchasable}>
+                      {m.name} {m.purchasable ? `- ${formatCurrency(m.sellPrice)}` : `- ${m.priceLabel}`}
                     </option>
                   ))}
                 </optgroup>
@@ -1248,11 +1144,13 @@ export default function QuoteBuilder() {
             </p>
             {estimateType === "container" && routeStatus === "loading" && <p className="route-line">Calculating fastest route...</p>}
             {routeStatus === "error" && <p className="route-line" style={{ color: "#fca5a5" }}>{routeError}</p>}
+            {deliveryMeta?.manual && <p className="route-line">Using the kilometres you entered.</p>}
           </div>
 
           <InteractiveMap
             mapId="quote-builder-map"
             height={560}
+            geometry={deliveryMeta?.geometry || null}
             startCoords={
               routeStatus === "ready" && deliveryMeta?.startCoords
                 ? [deliveryMeta.startCoords.lat, deliveryMeta.startCoords.lon]

@@ -14,6 +14,7 @@ function pinIcon(color) {
 export default function InteractiveMap({
   startCoords,
   endCoords,
+  geometry = null,
   startLabel = "Start",
   endLabel = "Destination",
   height = 300,
@@ -68,10 +69,12 @@ export default function InteractiveMap({
         fitToLayer(markerGroup);
       }
 
-      const route = await getRoute(
-        { lat: startCoords[0], lon: startCoords[1] },
-        { lat: endCoords[0], lon: endCoords[1] }
-      );
+      const route = geometry?.coordinates?.length
+        ? { geometry }
+        : await getRoute(
+            { lat: startCoords[0], lon: startCoords[1] },
+            { lat: endCoords[0], lon: endCoords[1] }
+          );
 
       if (route?.geometry?.coordinates?.length) {
         const latLngs = route.geometry.coordinates.map(([lon, lat]) => [lat, lon]);
@@ -103,7 +106,7 @@ export default function InteractiveMap({
       clearTimeout(resizeTimer);
       map.remove();
     };
-  }, [startCoords, endCoords, startLabel, endLabel, mapId]);
+  }, [startCoords, endCoords, startLabel, endLabel, mapId, geometry]);
 
   return (
     <div

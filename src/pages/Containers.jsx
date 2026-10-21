@@ -1,47 +1,39 @@
 import { useState } from "react";
 import BottomSheetModal from "../components/BottomSheetModal";
+import CatalogAccess from "../components/CatalogAccess";
 import { useQuoteStore } from "../store/quoteStore";
+import { useCatalog } from "../utils/useCatalog";
 
 export default function Containers() {
   const [showModal, setShowModal] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
   const { addToQuote } = useQuoteStore();
-
-  const containers = [
-    { name: "20ft Used", cost: 3200, type: "container" },
-    { name: "20ft New", cost: 5200, type: "container" },
-    { name: "40ft Used", cost: 4200, type: "container" },
-    { name: "40ft New", cost: 7200, type: "container" },
-    { name: "40ft HC Used", cost: 4600, type: "container" },
-    { name: "40ft HC New", cost: 7600, type: "container" },
-  ];
-
-  const applyMarkup = (cost) => {
-    if (!cost || cost === "Ask" || cost === "N/A") return cost;
-    const marked = Number(cost) + 150;
-    return Math.round(marked / 50) * 50;
-  };
+  const catalogState = useCatalog();
+  const containers = catalogState.catalog?.containers || [];
 
   return (
     <div className="page">
       <h2 className="page-title">Containers</h2>
+      <CatalogAccess
+        loading={catalogState.loading}
+        error={catalogState.error}
+        needsPassword={catalogState.needsPassword}
+        onUnlock={catalogState.reload}
+      />
 
       <div className="container-list">
-        {containers.map((c, i) => (
+        {containers.map((c) => (
           <div
-            key={i}
+            key={c.name}
             className="container-card clickable"
             onClick={() => {
+              if (!c.purchasable) return;
               setSelectedItem({ ...c, type: "container" });
               setShowModal(true);
             }}
           >
             <h3>{c.name}</h3>
-            <p>
-              {typeof c.cost === "number"
-                ? `$${applyMarkup(c.cost)}`
-                : c.cost}
-            </p>
+            <p>{c.purchasable ? `$${c.sellPrice}` : c.priceLabel}</p>
           </div>
         ))}
       </div>
