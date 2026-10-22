@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import { defineConfig, loadEnv } from 'vite'
 import react, { reactCompilerPreset } from '@vitejs/plugin-react'
 import babel from '@rolldown/plugin-babel'
@@ -59,6 +60,19 @@ function preloadAppPlugin() {
   };
 }
 
+function serviceWorkerPolicyPlugin() {
+  return {
+    name: "service-worker-policy",
+    generateBundle() {
+      this.emitFile({
+        type: "asset",
+        fileName: "pwaPolicy.js",
+        source: fs.readFileSync(new URL("./src/utils/pwaPolicy.js", import.meta.url), "utf8"),
+      });
+    },
+  };
+}
+
 function wrightsApiPlugin(env) {
   return {
     name: "wrights-api",
@@ -81,6 +95,7 @@ export default defineConfig(({ mode }) => {
       babel({ presets: [reactCompilerPreset()] }),
       wrightsApiPlugin(env),
       preloadAppPlugin(),
+      serviceWorkerPolicyPlugin(),
     ],
   };
 })
