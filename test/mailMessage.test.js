@@ -43,7 +43,7 @@ test("the default message greets the customer in title case and stays editable t
   assert.match(estimate, /^Hi John,/);
   assert.match(estimate, /Your estimate #528 is attached/);
   assert.match(estimate, /would like to go ahead/);
-  assert.match(estimate, /Thanks,\nChad\nDisposal Solutions\n416-889-5284\ndisposalsolutions@outlook.com$/);
+  assert.match(estimate, /Thanks,\nChad\nDisposal Solutions\n416-889-5284\n705-707-6064\ndisposalsolutions@outlook.com$/);
   assert.equal(estimate.includes("JOHN"), false);
   assert.equal(estimate.includes(".pdf"), false);
 
@@ -51,6 +51,7 @@ test("the default message greets the customer in title case and stays editable t
   assert.match(invoice, /^Hi Acme,/);
   assert.match(invoice, /Your invoice #510 is attached/);
   assert.match(invoice, /payment/i);
+  assert.match(invoice, /416-889-5284\n705-707-6064\ndisposalsolutions@outlook.com$/);
   assert.equal(defaultMailBody({ kind: "estimate", fileName: "Est 1 - .xlsx", customerName: "" }).startsWith("Hi,"), true);
 });
 
