@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { accountEmail, classifyMailAuthError, interpretMailLogin, pickAccounts } from "../src/utils/mailAccounts.js";
-import { buildPendingMail, clearPendingMail, readPendingMail, savePendingMail } from "../src/utils/pendingMail.js";
+import { buildPendingMail, clearPendingMailAll, readPendingMailFirst, savePendingMailAll } from "../src/utils/pendingMail.js";
 import { markFileSent, plainMailError, SENT_LOG_KEY, statusLine } from "../src/utils/mailNotice.js";
 
 function memoryStorage() {
@@ -38,11 +38,13 @@ test("a business-mailbox login is accepted and Chad's OneDrive account stays sep
 test("popup failure decides between cancel, redirect fallback, and a visible error", () => {
   assert.equal(classifyMailAuthError({ errorCode: "popup_window_error" }), "popup-blocked");
   assert.equal(classifyMailAuthError({ errorCode: "user_cancelled" }), "cancel");
+  assert.equal(classifyMailAuthError({ errorCode: "timed_out", message: "timed_out: See https://aka.ms/msal.js.errors#timed_out" }), "timeout");
   assert.equal(classifyMailAuthError({ message: "interaction_required" }), "error");
 });
 
-test("a blocked popup keeps the estimate id so the send can resume", () => {
-  const storage = memoryStorage();
+test("a phone sign-in keeps the estimate in local storage so another tab can finish it", () => {
+  const local = memoryStorage();
+  const session = memoryStorage();
   const pending = buildPendingMail({
     kind: "estimate",
     listFileName: "Est 528 - Customer.xlsx",
@@ -50,12 +52,16 @@ test("a blocked popup keeps the estimate id so the send can resume", () => {
     to: "customer@example.com",
     subject: "Estimate",
     body: "Please find your estimate attached.",
+    senderAddress: "disposalsolutions@outlook.com",
     contentBase64: "YQ==",
   });
-  assert.equal(savePendingMail(pending, storage).ok, true);
-  assert.equal(readPendingMail(storage).listFileName, "Est 528 - Customer.xlsx");
-  clearPendingMail(storage);
-  assert.equal(readPendingMail(storage), null);
+  assert.equal(savePendingMailAll(pending, [local, session]).ok, true);
+  assert.equal(readPendingMailFirst([local, session]).listFileName, "Est 528 - Customer.xlsx");
+  assert.equal(readPendingMailFirst([local, session]).senderAddress, "disposalsolutions@outlook.com");
+  clearPendingMailAll([session]);
+  assert.equal(readPendingMailFirst([local, session]).listFileName, "Est 528 - Customer.xlsx");
+  clearPendingMailAll([local, session]);
+  assert.equal(readPendingMailFirst([local, session]), null);
 });
 
 test("mail failures always have a plain message and a sent file is marked", () => {

@@ -1,5 +1,7 @@
 export const MAIL_AUTHORITY = "https://login.microsoftonline.com/consumers";
 export const MAIL_REDIRECT_FLAG = "wrights_mail_redirect";
+/** Desktop popup wait. Password plus a PIN can take several minutes. */
+export const MAIL_POPUP_BRIDGE_MS = 10 * 60 * 1000;
 
 const AUTH_MARKERS = ["code", "error", "id_token", "access_token"];
 
@@ -15,6 +17,39 @@ export function markMailRedirect(storage) {
 
 export function clearMailRedirect(storage) {
   storage?.removeItem(MAIL_REDIRECT_FLAG);
+}
+
+export function markMailRedirectAll(storages) {
+  for (const storage of storages || []) markMailRedirect(storage);
+}
+
+export function clearMailRedirectAll(storages) {
+  for (const storage of storages || []) clearMailRedirect(storage);
+}
+
+export function mailRedirectPendingAny(storages) {
+  return (storages || []).some((storage) => mailRedirectPending(storage));
+}
+
+/**
+ * Phones open a popup as another tab, and that tab cannot reliably hand the
+ * sign-in back. A touch-primary or narrow screen uses the full-page sign-in.
+ */
+export function prefersMailRedirect({
+  userAgent = "",
+  maxTouchPoints = 0,
+  coarsePointer = false,
+  narrow = false,
+} = {}) {
+  if (/Android|iPhone|iPad|iPod|Mobile/i.test(userAgent)) return true;
+  return Boolean(Number(maxTouchPoints) > 0 && (coarsePointer || narrow));
+}
+
+/** Full-page sign-in on a phone, and whenever a desktop popup is blocked or times out. */
+export function shouldSendByRedirect({ mobile = false, authKind = "" } = {}) {
+  if (authKind === "user-cancelled" || authKind === "not-configured" || authKind === "wrong-mailbox") return false;
+  if (mobile) return true;
+  return authKind === "popup-blocked" || authKind === "timeout" || authKind === "use-redirect";
 }
 
 export function mailRedirectPending(storage) {
@@ -62,14 +97,10 @@ export function readAuthInteraction(hash, search) {
 }
 
 /**
- * Hand the Microsoft reply to MSAL's redirect bridge before the app boots.
- * Popup replies always relay, even when window.opener was cleared.
- * Full-page replies relay only for the business mailbox, so Hotmail sign-in
- * still runs through the existing page load.
+ * Hand a popup reply to MSAL's redirect bridge before the app boots.
+ * A full-page redirect, including the business mailbox, must boot the app
+ * so handleRedirectPromise can finish the email. Relaying it here drops it.
  */
-export function shouldRelayAuthReturn(hash, search, { mailRedirectPending: pending = false } = {}) {
-  const kind = readAuthInteraction(hash, search);
-  if (kind === "popup") return true;
-  if (kind === "redirect" && pending) return true;
-  return false;
+export function shouldRelayAuthReturn(hash, search) {
+  return readAuthInteraction(hash, search) === "popup";
 }

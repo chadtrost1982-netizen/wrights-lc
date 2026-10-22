@@ -3,20 +3,21 @@ import { activeCountersPath, activeOneDriveFolder, parentDriveFolder } from "./o
 import { encodeGraphPath, ensureDriveFolder } from "./ensureDriveFolder.js";
 import { activeMailFrom, classifyMailAuthError, interpretMailLogin, normalizeEmail, pickAccounts } from "./mailAccounts.js";
 import { markFileSent, plainMailError, writeMailNotice } from "./mailNotice.js";
-import { buildPendingMail, clearPendingMail, readPendingMail, savePendingMail } from "./pendingMail.js";
+import { buildPendingMail, clearPendingMailAll, readPendingMailFirst, savePendingMailAll } from "./pendingMail.js";
 import {
-  clearMailRedirect,
+  clearMailRedirectAll,
   driveAuthority,
   MAIL_AUTHORITY,
-  mailRedirectPending,
-  markMailRedirect,
+  MAIL_POPUP_BRIDGE_MS,
+  mailRedirectPendingAny,
+  markMailRedirectAll,
+  prefersMailRedirect,
+  shouldSendByRedirect,
 } from "./mailAuthority.js";
 
 const clientId = import.meta.env.VITE_AZURE_CLIENT_ID || "";
 const tenantId = import.meta.env.VITE_AZURE_TENANT_ID || "common";
 const redirectUri = import.meta.env.VITE_AZURE_REDIRECT_URI || window.location.origin;
-const MAIL_POPUP_BRIDGE_MS = 180000;
-const MAIL_AUTH_DEADLINE_MS = 190000;
 
 const fileScope = "Files.ReadWrite";
 const mailScope = "Mail.Send";
@@ -34,13 +35,30 @@ let msalInitPromise = null;
 let lastRedirectError = "";
 let lastInteractiveAttemptAt = 0;
 
-function withTimeout(promise, ms, label) {
-  let timer = null;
-  const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
-  });
-  return Promise.race([promise, timeout]).finally(() => {
-    if (timer) clearTimeout(timer);
+function browserStorages() {
+  const stores = [];
+  try {
+    if (typeof localStorage !== "undefined") stores.push(localStorage);
+  } catch { /* private mode */ }
+  try {
+    if (typeof sessionStorage !== "undefined") stores.push(sessionStorage);
+  } catch { /* private mode */ }
+  return stores;
+}
+
+function devicePrefersMailRedirect() {
+  if (typeof navigator === "undefined") return false;
+  let coarsePointer = false;
+  let narrow = false;
+  try {
+    coarsePointer = window.matchMedia("(pointer: coarse)").matches;
+    narrow = window.matchMedia("(max-width: 900px)").matches;
+  } catch { /* matchMedia missing */ }
+  return prefersMailRedirect({
+    userAgent: navigator.userAgent,
+    maxTouchPoints: navigator.maxTouchPoints,
+    coarsePointer,
+    narrow,
   });
 }
 
@@ -114,8 +132,9 @@ function getMailMsalApp() {
 async function consumeMailRedirect() {
   const mail = getMailMsalApp();
   const drive = getMsalApp();
+  const stores = browserStorages();
   if (!mail) {
-    clearMailRedirect(sessionStorage);
+    clearMailRedirectAll(stores);
     return;
   }
   try {
@@ -124,7 +143,7 @@ async function consumeMailRedirect() {
   } catch (err) {
     lastRedirectError = err?.message || String(err || "Redirect auth failed");
   } finally {
-    clearMailRedirect(sessionStorage);
+    clearMailRedirectAll(stores);
     if (drive) useDriveAccount(drive);
   }
 }
@@ -136,7 +155,7 @@ export async function initializeOneDriveAuth() {
   if (!msalInitPromise) {
     msalInitPromise = (async () => {
       await app.initialize();
-      if (mailRedirectPending(sessionStorage)) {
+      if (mailRedirectPendingAny(browserStorages())) {
         await consumeMailRedirect();
         useDriveAccount(app);
         return;
@@ -513,8 +532,8 @@ async function beginMailRedirect() {
     };
   }
   lastInteractiveAttemptAt = now;
-  sessionStorage.setItem(MAIL_CONSENT_ATTEMPT_KEY, String(now));
-  markMailRedirect(sessionStorage);
+  try { sessionStorage.setItem(MAIL_CONSENT_ATTEMPT_KEY, String(now)); } catch { /* storage blocked */ }
+  markMailRedirectAll(browserStorages());
   try {
     await mail.initialize();
     await mail.loginRedirect({
@@ -526,7 +545,7 @@ async function beginMailRedirect() {
       redirectStartPage: window.location.href,
     });
   } catch (err) {
-    clearMailRedirect(sessionStorage);
+    clearMailRedirectAll(browserStorages());
     throw err;
   }
   return { ok: false, reason: "mail-redirecting", senderAddress };
@@ -550,7 +569,7 @@ async function loginMailPopup() {
   } catch (err) {
     const kind = classifyMailAuthError(err);
     if (kind === "cancel") return { ok: false, reason: "user-cancelled", senderAddress };
-    if (kind === "popup-blocked") return { ok: false, reason: "popup-blocked", senderAddress };
+    if (kind === "popup-blocked" || kind === "timeout") return { ok: false, reason: "use-redirect", senderAddress };
     return {
       ok: false,
       reason: "auth-failed",
@@ -594,6 +613,7 @@ async function getMailToken({ interactive = "popup" } = {}) {
   await mail.initialize();
   const { mailAccount } = accountChoices(mail);
   useDriveAccount(drive);
+  const wantsRedirect = interactive === "redirect" || devicePrefersMailRedirect();
   if (mailAccount) {
     try {
       const silent = await mail.acquireTokenSilent({
@@ -605,7 +625,7 @@ async function getMailToken({ interactive = "popup" } = {}) {
       if (silent?.accessToken) return { ok: true, token: silent.accessToken };
     } catch (err) {
       useDriveAccount(drive);
-      if (interactive === "none" || !needsInteraction(err)) {
+      if (interactive === "none" || (!needsInteraction(err) && !wantsRedirect)) {
         return {
           ok: false,
           reason: "auth-failed",
@@ -626,20 +646,26 @@ async function getMailToken({ interactive = "popup" } = {}) {
   if (interactive === "none") {
     return { ok: false, reason: "auth-failed", senderAddress: activeMailFrom(), details: "Send mail still needs a sign-in." };
   }
+  if (wantsRedirect) return { ok: false, reason: "use-redirect", senderAddress: activeMailFrom() };
   const popup = await loginMailPopup();
-  if (popup.token || popup.reason !== "popup-blocked") return popup;
-  if (interactive !== "popup") return popup;
+  if (popup.reason === "use-redirect" || popup.reason === "popup-blocked") {
+    return { ok: false, reason: "use-redirect", senderAddress: activeMailFrom() };
+  }
   return popup;
 }
 
 async function persistAndRedirectMail(fields) {
-  const saved = savePendingMail(buildPendingMail(fields), sessionStorage);
+  const stores = browserStorages();
+  const saved = savePendingMailAll(buildPendingMail({
+    ...fields,
+    senderAddress: activeMailFrom(),
+  }), stores);
   if (!saved.ok) {
     return {
       ok: false,
-      reason: "popup-blocked",
+      reason: "auth-failed",
       senderAddress: activeMailFrom(),
-      details: "Allow popups for this site and press Send again. This email is too large to finish after the page reloads.",
+      details: "This email is too large to finish after the Microsoft sign-in page. The email was not sent.",
     };
   }
   writeMailNotice({
@@ -652,7 +678,8 @@ async function persistAndRedirectMail(fields) {
     const redirected = await beginMailRedirect();
     return redirected.reason === "mail-signin-required" ? redirected : { ok: false, reason: "mail-redirecting", senderAddress: activeMailFrom() };
   } catch (err) {
-    clearPendingMail(sessionStorage);
+    clearPendingMailAll(stores);
+    clearMailRedirectAll(stores);
     return {
       ok: false,
       reason: "auth-failed",
@@ -775,9 +802,10 @@ export async function sendGraphEmailWithAttachment({
       message: `Sending from ${activeMailFrom()}...`,
     });
 
-    const mailAuth = await withTimeout(getMailToken({ interactive: "popup" }), MAIL_AUTH_DEADLINE_MS, "Authentication");
+    const mobile = devicePrefersMailRedirect();
+    const mailAuth = await getMailToken({ interactive: mobile ? "redirect" : "popup" });
     if (!mailAuth?.token) {
-      if (mailAuth?.reason === "popup-blocked") {
+      if (shouldSendByRedirect({ mobile, authKind: mailAuth?.reason })) {
         const contentBase64 = toBase64(await blob.arrayBuffer());
         return persistAndRedirectMail({
           kind,
@@ -812,16 +840,27 @@ export async function sendGraphEmailWithAttachment({
   }
 }
 
+function announceMailResult(result) {
+  if (typeof window === "undefined" || typeof window.alert !== "function") return;
+  if (result?.ok) {
+    window.alert(`Sent from ${result.senderAddress || activeMailFrom()}.`);
+    return;
+  }
+  window.alert(plainMailError(result));
+}
+
 export async function resumePendingMailSend() {
-  const pending = readPendingMail(sessionStorage);
+  const stores = browserStorages();
+  const pending = readPendingMailFirst(stores);
   if (!pending) return { ok: false, reason: "none" };
   const fail = (result) => {
-    clearPendingMail(sessionStorage);
+    clearPendingMailAll(stores);
     writeMailNotice({
       state: "error",
       fileName: pending.listFileName,
       message: plainMailError(result),
     });
+    announceMailResult(result);
     return result;
   };
   try {
@@ -849,7 +888,7 @@ export async function resumePendingMailSend() {
       blob,
     });
     if (!result.ok) return fail(result);
-    clearPendingMail(sessionStorage);
+    clearPendingMailAll(stores);
     markFileSent(pending.listFileName);
     writeMailNotice({
       state: "sent",
@@ -857,6 +896,7 @@ export async function resumePendingMailSend() {
       fileName: pending.listFileName,
       message: "Sent",
     });
+    announceMailResult(result);
     return result;
   } catch (err) {
     return fail({

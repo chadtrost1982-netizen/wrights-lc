@@ -1,17 +1,15 @@
-import { mailRedirectPending, readAuthInteraction, shouldRelayAuthReturn } from "./mailAuthority.js";
+import { readAuthInteraction, shouldRelayAuthReturn } from "./mailAuthority.js";
 
 /**
- * MSAL waits on a same-origin BroadcastChannel for the popup reply.
- * The quoting app must not boot on that reply: its startup reads the
- * Microsoft hash and never posts the channel message, so the opener
- * reports timed_out after the sign-in page has already finished.
+ * MSAL waits on a same-origin BroadcastChannel for a popup reply.
+ * Only that popup reply is handed back here. A full-page redirect must
+ * boot the app, which finishes the email after handleRedirectPromise.
  * The redirect address stays the one already registered in Azure.
  */
-export async function relayAuthReturn(loc = window.location, storage = window.sessionStorage) {
+export async function relayAuthReturn(loc = window.location) {
   try {
-    const pending = mailRedirectPending(storage);
     const kind = readAuthInteraction(loc.hash, loc.search);
-    if (!shouldRelayAuthReturn(loc.hash, loc.search, { mailRedirectPending: pending })) return false;
+    if (!shouldRelayAuthReturn(loc.hash, loc.search)) return false;
     const { broadcastResponseToMainFrame } = await import("@azure/msal-browser/redirect-bridge");
     await broadcastResponseToMainFrame();
     if (kind === "popup") {
