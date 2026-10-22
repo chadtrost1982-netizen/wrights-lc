@@ -15,6 +15,7 @@ import {
   queuePendingOneDriveUpload,
   downloadOneDriveFile,
   downloadOneDriveFileById,
+  ensureBusinessMailbox,
   sendGraphEmailWithAttachment,
   uploadBlobToOneDrive,
 } from "../utils/oneDriveGraph";
@@ -1213,6 +1214,26 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
 
     setSendingEmail(true);
     try {
+      const gate = await ensureBusinessMailbox({
+        kind: "invoice",
+        listFileName: emailFile,
+        attachmentName: emailFile,
+        itemId: emailFileEntry?.id || "",
+        to: emailTo,
+        cc: emailCc,
+        subject: emailSubject || `Invoice - ${emailFile}`,
+        body: emailBody,
+        customerName: emailCustomerName,
+        regenerate: graphMode,
+      });
+      if (gate?.reason === "mail-redirecting") {
+        finishMailAttempt(emailFile, gate);
+        return;
+      }
+      if (gate && gate.ok === false) {
+        alert(finishMailAttempt(emailFile, gate).message);
+        return;
+      }
       let fileBlob;
       if (graphMode) {
         const oneDriveResult = emailFileEntry?.id
@@ -1244,6 +1265,7 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
         kind: "invoice",
         itemId: emailFileEntry?.id || "",
         customerName: emailCustomerName,
+        regenerate: graphMode,
       });
       const outcome = finishMailAttempt(emailFile, result);
       if (outcome.redirecting) return;

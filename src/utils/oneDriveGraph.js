@@ -3,7 +3,9 @@ import { activeCountersPath, activeOneDriveFolder, parentDriveFolder } from "./o
 import { encodeGraphPath, ensureDriveFolder } from "./ensureDriveFolder.js";
 import { activeMailFrom, classifyMailAuthError, interpretMailLogin, normalizeEmail, pickAccounts } from "./mailAccounts.js";
 import { markFileSent, plainMailError, writeMailNotice } from "./mailNotice.js";
-import { buildPendingMail, clearPendingMailAll, readPendingMailFirst, savePendingMailAll } from "./pendingMail.js";
+import { clearPendingMailAll, keepPendingSend, readPendingMailFirst } from "./pendingMail.js";
+import { clearPendingBlob, readPendingBlob, savePendingBlob } from "./pendingMailBlob.js";
+import { buildEstimatePdfFromExcelFile } from "./estimatePdf.js";
 import {
   clearMailRedirectAll,
   driveAuthority,
@@ -656,16 +658,22 @@ async function getMailToken({ interactive = "popup" } = {}) {
 
 async function persistAndRedirectMail(fields) {
   const stores = browserStorages();
-  const saved = savePendingMailAll(buildPendingMail({
-    ...fields,
-    senderAddress: activeMailFrom(),
-  }), stores);
-  if (!saved.ok) {
+  const kept = await keepPendingSend({
+    record: {
+      ...fields,
+      senderAddress: activeMailFrom(),
+      regenerate: fields.regenerate === true,
+    },
+    blob: fields.blob,
+    storages: stores,
+    blobStore: { save: savePendingBlob },
+  });
+  if (!kept.ok) {
     return {
       ok: false,
-      reason: "auth-failed",
+      reason: "keep-failed",
       senderAddress: activeMailFrom(),
-      details: "This email is too large to finish after the Microsoft sign-in page. The email was not sent.",
+      details: "The email could not be kept while Microsoft opens. Press Send again.",
     };
   }
   writeMailNotice({
@@ -679,6 +687,7 @@ async function persistAndRedirectMail(fields) {
     return redirected.reason === "mail-signin-required" ? redirected : { ok: false, reason: "mail-redirecting", senderAddress: activeMailFrom() };
   } catch (err) {
     clearPendingMailAll(stores);
+    await clearPendingBlob();
     clearMailRedirectAll(stores);
     return {
       ok: false,
@@ -790,6 +799,7 @@ export async function sendGraphEmailWithAttachment({
   kind = "estimate",
   itemId = "",
   customerName = "",
+  regenerate = false,
 }) {
   try {
     if (!clientId) return { ok: false, reason: "not-configured", senderAddress: activeMailFrom() };
@@ -806,7 +816,6 @@ export async function sendGraphEmailWithAttachment({
     const mailAuth = await getMailToken({ interactive: mobile ? "redirect" : "popup" });
     if (!mailAuth?.token) {
       if (shouldSendByRedirect({ mobile, authKind: mailAuth?.reason })) {
-        const contentBase64 = toBase64(await blob.arrayBuffer());
         return persistAndRedirectMail({
           kind,
           listFileName: listFileName || fileName,
@@ -817,8 +826,8 @@ export async function sendGraphEmailWithAttachment({
           subject,
           body,
           customerName,
-          contentType: blob.type || "application/octet-stream",
-          contentBase64,
+          blob,
+          regenerate: regenerate === true,
         });
       }
       return mailAuth?.reason
@@ -840,6 +849,56 @@ export async function sendGraphEmailWithAttachment({
   }
 }
 
+async function rebuildMailAttachment(pending) {
+  const kind = pending.kind === "invoice" ? "invoice" : "estimate";
+  const name = pending.listFileName || pending.attachmentName || "";
+  if (pending.regenerate !== false) {
+    try {
+      let downloaded = null;
+      if (pending.itemId) downloaded = await downloadOneDriveFileById(kind, pending.itemId);
+      if (!downloaded?.ok && name) downloaded = await downloadOneDriveFile(kind, name);
+      if (downloaded?.ok && downloaded.blob) {
+        const excel = /\.(xlsx|xlsm|xls)$/i.test(name);
+        if (kind === "estimate" && excel) {
+          const file = new File([downloaded.blob], name, { type: downloaded.blob.type || "application/octet-stream" });
+          const pdf = await buildEstimatePdfFromExcelFile(file);
+          if (pdf) {
+            const pdfName = pending.attachmentName || name.replace(/\.(xlsx|xlsm|xls)$/i, ".pdf");
+            return { blob: pdf, fileName: pdfName };
+          }
+        } else {
+          return { blob: downloaded.blob, fileName: pending.attachmentName || name };
+        }
+      }
+    } catch {
+      // The saved copy below is used when OneDrive cannot be opened.
+    }
+  }
+  if (pending.contentBase64) {
+    return {
+      blob: fromBase64ToBlob(pending.contentBase64, pending.contentType),
+      fileName: pending.attachmentName || name,
+    };
+  }
+  const stored = await readPendingBlob();
+  if (!stored?.blob) return null;
+  return { blob: stored.blob, fileName: stored.fileName || pending.attachmentName || name };
+}
+
+export async function ensureBusinessMailbox(fields = {}) {
+  if (!clientId) return { ok: false, reason: "not-configured", senderAddress: activeMailFrom() };
+  if (!devicePrefersMailRedirect()) return { ok: true };
+  const mailAuth = await getMailToken({ interactive: "redirect" });
+  if (mailAuth?.token) return { ok: true };
+  if (!shouldSendByRedirect({ mobile: true, authKind: mailAuth?.reason })) {
+    return mailAuth?.reason
+      ? mailAuth
+      : { ok: false, reason: "auth-failed", senderAddress: activeMailFrom() };
+  }
+  if (fields.regenerate !== true && !fields.blob) return { ok: true };
+  return persistAndRedirectMail(fields);
+}
+
 function announceMailResult(result) {
   if (typeof window === "undefined" || typeof window.alert !== "function") return;
   if (result?.ok) {
@@ -851,10 +910,12 @@ function announceMailResult(result) {
 
 export async function resumePendingMailSend() {
   const stores = browserStorages();
-  const pending = readPendingMailFirst(stores);
+  const stored = await readPendingBlob();
+  const pending = readPendingMailFirst(stores) || stored?.descriptor || null;
   if (!pending) return { ok: false, reason: "none" };
-  const fail = (result) => {
+  const fail = async (result) => {
     clearPendingMailAll(stores);
+    await clearPendingBlob();
     writeMailNotice({
       state: "error",
       fileName: pending.listFileName,
@@ -867,28 +928,37 @@ export async function resumePendingMailSend() {
     if (lastRedirectError) {
       const details = lastRedirectError;
       lastRedirectError = "";
-      return fail({ ok: false, reason: "auth-failed", senderAddress: activeMailFrom(), details });
+      return await fail({ ok: false, reason: "auth-failed", senderAddress: activeMailFrom(), details });
     }
     const mailAuth = await getMailToken({ interactive: "none" });
     if (!mailAuth?.token) {
-      return fail(mailAuth?.reason ? mailAuth : {
+      return await fail(mailAuth?.reason ? mailAuth : {
         ok: false,
         reason: "wrong-mailbox",
         senderAddress: activeMailFrom(),
       });
     }
-    const blob = fromBase64ToBlob(pending.contentBase64, pending.contentType);
+    const attachment = await rebuildMailAttachment(pending);
+    if (!attachment?.blob) {
+      return await fail({
+        ok: false,
+        reason: "auth-failed",
+        senderAddress: activeMailFrom(),
+        details: "The file could not be opened after sign-in. Press Send again.",
+      });
+    }
     const result = await deliverMail({
       token: mailAuth.token,
       to: pending.to,
       cc: pending.cc,
       subject: pending.subject,
       body: pending.body,
-      fileName: pending.attachmentName || pending.listFileName,
-      blob,
+      fileName: attachment.fileName || pending.attachmentName || pending.listFileName,
+      blob: attachment.blob,
     });
-    if (!result.ok) return fail(result);
+    if (!result.ok) return await fail(result);
     clearPendingMailAll(stores);
+    await clearPendingBlob();
     markFileSent(pending.listFileName);
     writeMailNotice({
       state: "sent",
@@ -899,7 +969,7 @@ export async function resumePendingMailSend() {
     announceMailResult(result);
     return result;
   } catch (err) {
-    return fail({
+    return await fail({
       ok: false,
       reason: "auth-failed",
       senderAddress: activeMailFrom(),
