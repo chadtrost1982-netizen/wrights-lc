@@ -37,6 +37,28 @@ function attachApi(server) {
   });
 }
 
+function preloadAppPlugin() {
+  return {
+    name: "preload-app",
+    transformIndexHtml: {
+      order: "post",
+      handler(html, ctx) {
+        const bundle = ctx.bundle;
+        if (!bundle) return html;
+        const links = Object.keys(bundle)
+          .filter((file) => file.startsWith("assets/main-"))
+          .map((file) => (
+            file.endsWith(".css")
+              ? `<link rel="stylesheet" crossorigin href="/${file}">`
+              : `<link rel="modulepreload" crossorigin href="/${file}">`
+          ));
+        if (!links.length) return html;
+        return html.replace("</head>", `    ${links.join("\n    ")}\n  </head>`);
+      },
+    },
+  };
+}
+
 function wrightsApiPlugin(env) {
   return {
     name: "wrights-api",
@@ -58,6 +80,7 @@ export default defineConfig(({ mode }) => {
       react(),
       babel({ presets: [reactCompilerPreset()] }),
       wrightsApiPlugin(env),
+      preloadAppPlugin(),
     ],
   };
 })

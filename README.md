@@ -120,7 +120,7 @@ In Azure app registration -> Authentication -> Single-page application:
 
 ## Sending email from Disposal Solutions
 
-Invoices and estimates go out from `disposalsolutions@outlook.com`. OneDrive saves stay on `chadtrost@hotmail.com`. A personal Outlook mailbox cannot send mail as a different address, so the same browser holds two Microsoft sign-ins. The existing Azure app is reused. There is no new app, no client secret, and no Vercel change.
+Invoices and estimates go out from `disposalsolutions@outlook.com`. OneDrive saves stay on `chadtrost@hotmail.com`. A personal Outlook mailbox cannot send mail as a different address, so the same browser holds two Microsoft sign-ins. The existing Azure app is reused. There is no new app, no client secret, and no Vercel change. Sending uses the website address already listed under Authentication, so do not add another redirect URI.
 
 Do not add `disposalsolutions@outlook.com` to `VITE_ALLOWED_EMAILS` or `ALLOWED_EMAILS`.
 
@@ -130,9 +130,9 @@ Do this once on the PC, then once on the phone. Each browser remembers the sign-
 2. If Microsoft shows **Pick an account**, click `chadtrost@hotmail.com`. If that address is missing, click **Use another account**, type `chadtrost@hotmail.com`, and sign in. Confirm the app opens and does not say Access denied.
 3. Open an estimate or invoice and start an email. Confirm the form says **From:** `disposalsolutions@outlook.com`.
 4. Fill in To, then click **Send Email**.
-5. A small Microsoft window opens. If the browser blocks it, click the popup-blocked icon in the address bar, allow popups for `wrights-lc.vercel.app`, and press **Send Email** again. On **Pick an account**, click `disposalsolutions@outlook.com`. Do not choose `chadtrost@hotmail.com` for this window. If that address is missing, click **Use another account** and type `disposalsolutions@outlook.com`. Windows may then ask for the PC PIN.
+5. A small Microsoft window opens. It is the personal Microsoft page, the same kind used for Outlook.com, not a work or school account. If the browser blocks it, click the popup-blocked icon in the address bar, allow popups for `wrights-lc.vercel.app`, and press **Send Email** again. On **Pick an account**, click `disposalsolutions@outlook.com`. Do not choose `chadtrost@hotmail.com` for this window. If that address is missing, click **Use another account** and type `disposalsolutions@outlook.com`. Windows may then ask for the PC PIN. When sign-in finishes, the small window closes on its own.
 6. If Microsoft shows **Permissions requested**, click **Accept**.
-7. The app shows **Sending from disposalsolutions@outlook.com...** and then **Sent**. The file’s Last sent line is no longer Never. If the sign-in took over the whole page, wait until you land back: the email sends itself and the same line appears. A red message means it was not sent.
+7. The estimates page shows **Sending from disposalsolutions@outlook.com...** and then **Sent**. The file’s Last sent line is no longer Never. If the sign-in took over the whole page, wait until you land back: the email sends itself and the same line appears. A red message means it was not sent. Close any leftover Microsoft window before pressing Send again.
 8. In a browser, open [https://outlook.live.com](https://outlook.live.com) and sign in as `disposalsolutions@outlook.com`. Open **Sent Items**. Confirm the message is there and the customer sees that From address.
 9. Save a new estimate. Confirm the file appears in Chad’s OneDrive at `Desktop/Business/Disposal Solutions/Estimates`, not in the business mailbox’s OneDrive.
 

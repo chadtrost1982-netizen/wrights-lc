@@ -32,6 +32,9 @@ export function plainMailError(result) {
   if (result.reason === "send-failed") {
     return `Microsoft did not send the email${result.status ? ` (${result.status})` : ""}. ${friendlyGraph(result.details)}`.trim();
   }
+  if (result.reason === "auth-failed" && isSignInTimeout(result.details || result.message)) {
+    return `Microsoft's sign-in window did not finish in time, so the email was not sent. Close any leftover Microsoft window, press Send again, and choose ${from}.`;
+  }
   if (result.reason === "auth-failed") {
     const extra = cleanDetail(result.details);
     return extra
@@ -51,8 +54,13 @@ function friendlyGraph(details) {
   return cleaned || "Press Send again. If it still fails, sign in as the business mailbox and accept Send mail.";
 }
 
+function isSignInTimeout(details) {
+  return /timed_out|redirect_bridge_timeout|timed out after/i.test(String(details || ""));
+}
+
 function cleanDetail(details) {
   return String(details || "")
+    .replace(/https?:\/\/aka\.ms\/\S+/gi, "")
     .replace(/token_scp=\S+/gi, "")
     .replace(/token_user=\S+/gi, "")
     .replace(/\s+/g, " ")
