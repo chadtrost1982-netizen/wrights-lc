@@ -49,6 +49,7 @@ export function classifyMailAuthError(err) {
   const code = String(err?.errorCode || err?.code || "").toLowerCase();
   const msg = String(err?.message || err || "").toLowerCase();
   if (code.includes("user_cancel") || msg.includes("user_cancel") || msg.includes("user closed")) return "cancel";
+  if (code === "timed_out" || msg.includes("timed_out") || msg.includes("redirect_bridge_timeout")) return "timeout";
   if (
     code.includes("popup_window_error") ||
     code.includes("empty_window_error") ||

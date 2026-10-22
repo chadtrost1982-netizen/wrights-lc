@@ -12,6 +12,7 @@ export function buildPendingMail(fields) {
     subject: String(fields.subject || ""),
     body: String(fields.body || ""),
     customerName: String(fields.customerName || ""),
+    senderAddress: String(fields.senderAddress || ""),
     contentType: String(fields.contentType || "application/octet-stream"),
     contentBase64: String(fields.contentBase64 || ""),
     savedAt: fields.savedAt || new Date().toISOString(),
@@ -43,4 +44,31 @@ export function readPendingMail(storage) {
 
 export function clearPendingMail(storage) {
   storage?.removeItem(PENDING_MAIL_KEY);
+}
+
+export function savePendingMailAll(record, storages) {
+  const list = (storages || []).filter(Boolean);
+  if (!list.length) return { ok: false, reason: "incomplete" };
+  let saved = { ok: false, reason: "incomplete" };
+  for (const storage of list) {
+    try {
+      const attempt = savePendingMail(record, storage);
+      if (attempt.ok) saved = attempt;
+    } catch {
+      saved = saved.ok ? saved : { ok: false, reason: "too-large" };
+    }
+  }
+  return saved;
+}
+
+export function readPendingMailFirst(storages) {
+  for (const storage of storages || []) {
+    const found = readPendingMail(storage);
+    if (found) return found;
+  }
+  return null;
+}
+
+export function clearPendingMailAll(storages) {
+  for (const storage of storages || []) clearPendingMail(storage);
 }

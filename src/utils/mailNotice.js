@@ -18,7 +18,7 @@ export function plainMailError(result) {
     return "The sign-in window was blocked. Allow popups for this site and press Send again.";
   }
   if (result.reason === "mail-redirecting") {
-    return `Opening Microsoft to sign in as ${from}. This email will send when you come back.`;
+    return `Opening Microsoft to sign in as ${from}. Stay on that page, then this email sends itself when you come back.`;
   }
   if (result.reason === "mail-signin-required") {
     return `Choose ${from} on the Microsoft page and accept Send mail. The email was not sent yet.`;
@@ -75,12 +75,24 @@ export function statusLine(notice) {
 }
 
 export function writeMailNotice(notice, storage = defaultStorage()) {
-  if (!storage) return;
-  storage.setItem(MAIL_NOTICE_KEY, JSON.stringify(notice));
+  const json = JSON.stringify(notice);
+  if (storage) storage.setItem(MAIL_NOTICE_KEY, json);
+  const durable = durableStorage();
+  if (durable && durable !== storage) {
+    try { durable.setItem(MAIL_NOTICE_KEY, json); } catch { /* quota */ }
+  }
   if (typeof window !== "undefined") window.dispatchEvent(new Event(MAIL_NOTICE_EVENT));
 }
 
 export function readMailNotice(storage = defaultStorage()) {
+  const parsed = parseNotice(storage);
+  if (parsed) return parsed;
+  const durable = durableStorage();
+  if (durable && durable !== storage) return parseNotice(durable);
+  return null;
+}
+
+function parseNotice(storage) {
   if (!storage) return null;
   const raw = storage.getItem(MAIL_NOTICE_KEY);
   if (!raw) return null;
@@ -132,6 +144,10 @@ export function markFileSent(fileName, storage = defaultLocalStorage(), at = new
 
 function defaultStorage() {
   return typeof sessionStorage === "undefined" ? null : sessionStorage;
+}
+
+function durableStorage() {
+  return typeof localStorage === "undefined" ? null : localStorage;
 }
 
 function defaultLocalStorage() {
