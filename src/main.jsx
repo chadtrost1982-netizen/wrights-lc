@@ -5,6 +5,7 @@ import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
 import './index.css'
 import { initializeOneDriveAuth, resumePendingMailSend, resumePendingOneDriveUpload } from './utils/oneDriveGraph'
+import { registerAppServiceWorker } from './utils/registerServiceWorker'
 
 if (!window.__WRIGHTS_SKIP_BOOT__) {
   initializeOneDriveAuth()
@@ -12,6 +13,7 @@ if (!window.__WRIGHTS_SKIP_BOOT__) {
     .finally(async () => {
       await resumePendingOneDriveUpload().catch(() => null)
       await resumePendingMailSend().catch(() => null)
+      registerAppServiceWorker()
       ReactDOM.createRoot(document.getElementById('root')).render(
         <React.StrictMode>
           <App />

@@ -200,6 +200,22 @@ h2 {
   transform: translateY(-2px);
 }
 
+.top-nav .install-app {
+  background: transparent;
+  color: var(--accent);
+  border: 2px solid var(--accent);
+  border-radius: 6px;
+  font: inherit;
+  font-weight: 600;
+  font-size: 17px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.top-nav .install-app:hover {
+  background: rgba(242, 194, 0, 0.12);
+}
+
 /* --------------------------------------------------
    BUTTONS
 -------------------------------------------------- */

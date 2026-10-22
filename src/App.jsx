@@ -15,6 +15,7 @@ import {
   signOutRedirect,
 } from "./utils/oneDriveGraph";
 import MailStatusBanner from "./components/MailStatusBanner";
+import InstallAppButton from "./components/InstallAppButton";
 
 export default function App() {
   const [authState, setAuthState] = useState("checking");
@@ -103,6 +104,7 @@ export default function App() {
           <Link to="/create-invoice">Create Invoice</Link>
           <Link to="/invoice-tools">Invoices</Link>
           <Link to="/settings">Settings</Link>
+          <InstallAppButton />
         </nav>
         <MailStatusBanner />
 
