@@ -271,6 +271,32 @@ h2 {
   color: #b9efc8;
 }
 
+.email-status.error,
+.mail-banner.error {
+  background: #3a1414;
+  border-color: #9f1239;
+  color: #fecaca;
+}
+
+.mail-banner {
+  margin: 12px 0 0;
+  border: 1px solid #3b3b3b;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.mail-banner.sending {
+  background: #3a3208;
+  border-color: #f2c200;
+  color: #f2c200;
+}
+
+.mail-banner.sent {
+  background: #132016;
+  border-color: #2d7f45;
+  color: #b9efc8;
+}
+
 .mail-fly {
   display: inline-block;
   animation: mailPulse 1s ease-in-out infinite;

@@ -12,6 +12,7 @@ import {
 } from "../utils/oneDriveGraph";
 import { activeOneDriveFolder } from "../utils/oneDrivePaths";
 import { activeMailFrom } from "../utils/mailAccounts";
+import { finishMailAttempt, MAIL_NOTICE_EVENT, plainMailError } from "../utils/mailNotice";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 
@@ -89,22 +90,7 @@ function sentBadgeLabel(stamp) {
 }
 
 function emailErrorMessage(result) {
-  if (!result) return "Could not send email.";
-  if (result.reason === "not-configured") return "Email is not configured. Check Azure app settings.";
-  if (result.reason === "mail-signin-required") {
-    const from = result.senderAddress || activeMailFrom();
-    return `Choose ${from} on the Microsoft page, accept Send mail, then press Send again. OneDrive stays on your other account.`;
-  }
-  if (result.reason === "auth-failed") {
-    const extra = result.details ? ` ${result.details}` : "";
-    return `Sign-in/consent failed.${extra}`;
-  }
-  if (result.reason === "invalid-input") return "Missing email send fields.";
-  if (result.reason === "send-failed") {
-    const extra = result.details ? ` ${result.details}` : "";
-    return `Graph send failed (${result.status || "unknown"}).${extra} Ensure Mail.Send is granted.`;
-  }
-  return `Could not send email. ${result.reason || ""}`.trim();
+  return plainMailError(result);
 }
 
 async function buildEstimatePdfFromExcelFile(file) {
@@ -397,6 +383,9 @@ export default function QuoteList() {
     init();
     setCustomerContacts(loadJson(CUSTOMER_CONTACTS_KEY, []));
     setFileSentLog(loadJson(FILE_SENT_LOG_KEY, {}));
+    const refreshSent = () => setFileSentLog(loadJson(FILE_SENT_LOG_KEY, {}));
+    window.addEventListener(MAIL_NOTICE_EVENT, refreshSent);
+    return () => window.removeEventListener(MAIL_NOTICE_EVENT, refreshSent);
   }, []);
 
   const deleteEstimateFile = async (name) => {
@@ -521,7 +510,13 @@ export default function QuoteList() {
         body: emailBody,
         fileName: nameToSend,
         blob: blobToSend,
+        listFileName: emailFile,
+        kind: "estimate",
+        itemId: estimateFiles.find((item) => item.name === emailFile)?.id || "",
+        customerName,
       });
+      const outcome = finishMailAttempt(emailFile, result);
+      if (outcome.redirecting) return;
 
       if (result.ok) {
         const normalizedName = customerName.trim();
@@ -535,20 +530,15 @@ export default function QuoteList() {
           saveJson(CUSTOMER_CONTACTS_KEY, nextContacts);
         }
 
-        const stamp = new Date().toISOString();
-        const nextLog = { ...fileSentLog, [emailFile]: stamp };
-        setFileSentLog(nextLog);
-        saveJson(FILE_SENT_LOG_KEY, nextLog);
-        const senderNote = result?.senderAddress ? ` from ${result.senderAddress}` : "";
-        const statusNote = result?.status ? ` (Graph ${result.status})` : "";
-        alert(`Email sent${senderNote}${statusNote}.`);
+        setFileSentLog(loadJson(FILE_SENT_LOG_KEY, {}));
+        alert(`Sent from ${result.senderAddress || activeMailFrom()}.`);
         setSendSuccess(true);
         setTimeout(() => {
           setSendSuccess(false);
           setEmailFile(null);
         }, 1200);
       } else {
-        alert(emailErrorMessage(result));
+        alert(outcome.message || emailErrorMessage(result));
       }
     } catch (err) {
       alert(`Could not send email. ${err?.message || "Please check Azure sign-in and Mail.Send consent."}`);
@@ -742,13 +732,13 @@ export default function QuoteList() {
             {sending && (
               <div className="email-status sending">
                 <span className="mail-fly" aria-hidden="true">✉</span>
-                <span>Sending email…</span>
+                <span>Sending from {activeMailFrom()}...</span>
               </div>
             )}
             {sendSuccess && (
               <div className="email-status sent">
                 <span className="check-pop" aria-hidden="true">✓</span>
-                <span>Email sent</span>
+                <span>Sent</span>
               </div>
             )}
             <div className="actions" style={{ marginTop: "14px" }}>

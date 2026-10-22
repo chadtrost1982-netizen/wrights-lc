@@ -130,9 +130,9 @@ Do this once on the PC, then once on the phone. Each browser remembers the sign-
 2. If Microsoft shows **Pick an account**, click `chadtrost@hotmail.com`. If that address is missing, click **Use another account**, type `chadtrost@hotmail.com`, and sign in. Confirm the app opens and does not say Access denied.
 3. Open an estimate or invoice and start an email. Confirm the form says **From:** `disposalsolutions@outlook.com`.
 4. Fill in To, then click **Send Email**.
-5. Microsoft shows **Pick an account** again. Click `disposalsolutions@outlook.com`. If it is missing, click **Use another account**, type `disposalsolutions@outlook.com`, and enter that mailbox’s password.
-6. Microsoft shows **Permissions requested**. The list should include sending mail. Click **Accept**.
-7. The app comes back. Click **Send Email** again. Confirm the alert says the email was sent from `disposalsolutions@outlook.com`.
+5. A small Microsoft window opens. If the browser blocks it, click the popup-blocked icon in the address bar, allow popups for `wrights-lc.vercel.app`, and press **Send Email** again. On **Pick an account**, click `disposalsolutions@outlook.com`. Do not choose `chadtrost@hotmail.com` for this window. If that address is missing, click **Use another account** and type `disposalsolutions@outlook.com`. Windows may then ask for the PC PIN.
+6. If Microsoft shows **Permissions requested**, click **Accept**.
+7. The app shows **Sending from disposalsolutions@outlook.com...** and then **Sent**. The file’s Last sent line is no longer Never. If the sign-in took over the whole page, wait until you land back: the email sends itself and the same line appears. A red message means it was not sent.
 8. In a browser, open [https://outlook.live.com](https://outlook.live.com) and sign in as `disposalsolutions@outlook.com`. Open **Sent Items**. Confirm the message is there and the customer sees that From address.
 9. Save a new estimate. Confirm the file appears in Chad’s OneDrive at `Desktop/Business/Disposal Solutions/Estimates`, not in the business mailbox’s OneDrive.
 

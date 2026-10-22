@@ -21,6 +21,7 @@ import {
 import { allocateDocumentNumber } from "../utils/documentCounters";
 import { activeOneDriveFolder } from "../utils/oneDrivePaths";
 import { activeMailFrom } from "../utils/mailAccounts";
+import { finishMailAttempt, MAIL_NOTICE_EVENT, plainMailError } from "../utils/mailNotice";
 
 const MAX_WHEEL_LINES = 50;
 const CUSTOMER_KEY_WHEEL = "wheel_customer_names";
@@ -164,22 +165,7 @@ function saveJsonToStorage(key, value) {
 }
 
 function emailErrorMessage(result) {
-  if (!result) return "Could not send email.";
-  if (result.reason === "not-configured") return "Email is not configured. Check Azure app settings.";
-  if (result.reason === "mail-signin-required") {
-    const from = result.senderAddress || activeMailFrom();
-    return `Choose ${from} on the Microsoft page, accept Send mail, then press Send again. OneDrive stays on your other account.`;
-  }
-  if (result.reason === "auth-failed") {
-    const extra = result.details ? ` ${result.details}` : "";
-    return `Sign-in/consent failed.${extra}`;
-  }
-  if (result.reason === "invalid-input") return "Missing email send fields.";
-  if (result.reason === "send-failed") {
-    const extra = result.details ? ` ${result.details}` : "";
-    return `Graph send failed (${result.status || "unknown"}).${extra} Ensure Mail.Send is granted.`;
-  }
-  return `Could not send email. ${result.reason || ""}`.trim();
+  return plainMailError(result);
 }
 
 function extractInvoiceNumber(fileName) {
@@ -564,6 +550,9 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
     setWorkPresets(loadJsonFromStorage(workPresetKey, []));
     setCustomerContacts(loadJsonFromStorage(customerContactsKey, []));
     setFileSentLog(loadJsonFromStorage(FILE_SENT_LOG_KEY, {}));
+    const refreshSent = () => setFileSentLog(loadJsonFromStorage(FILE_SENT_LOG_KEY, {}));
+    window.addEventListener(MAIL_NOTICE_EVENT, refreshSent);
+    return () => window.removeEventListener(MAIL_NOTICE_EVENT, refreshSent);
   }, [customerKey, workPresetKey, customerContactsKey]);
 
   useEffect(() => {
@@ -1251,7 +1240,13 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
         body: emailBody,
         fileName: emailFile,
         blob: fileBlob,
+        listFileName: emailFile,
+        kind: "invoice",
+        itemId: emailFileEntry?.id || "",
+        customerName: emailCustomerName,
       });
+      const outcome = finishMailAttempt(emailFile, result);
+      if (outcome.redirecting) return;
 
       if (result.ok) {
         const normalizedName = emailCustomerName.trim();
@@ -1265,13 +1260,8 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
           saveJsonToStorage(customerContactsKey, nextContacts);
         }
 
-        const stamp = new Date().toISOString();
-        const nextLog = { ...fileSentLog, [emailFile]: stamp };
-        setFileSentLog(nextLog);
-        saveJsonToStorage(FILE_SENT_LOG_KEY, nextLog);
-        const senderNote = result?.senderAddress ? ` from ${result.senderAddress}` : "";
-        const statusNote = result?.status ? ` (Graph ${result.status})` : "";
-        alert(`Email sent${senderNote}${statusNote}.`);
+        setFileSentLog(loadJsonFromStorage(FILE_SENT_LOG_KEY, {}));
+        alert(`Sent from ${result.senderAddress || activeMailFrom()}.`);
         setEmailSendSuccess(true);
         setTimeout(() => {
           setEmailSendSuccess(false);
@@ -1279,7 +1269,7 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
           setEmailFileEntry(null);
         }, 1200);
       } else {
-        alert(emailErrorMessage(result));
+        alert(outcome.message || emailErrorMessage(result));
       }
     } catch (err) {
       alert(`Could not send email. ${err?.message || "Please check Azure sign-in and Mail.Send consent."}`);
@@ -1479,13 +1469,13 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
             {sendingEmail && (
               <div className="email-status sending">
                 <span className="mail-fly" aria-hidden="true">✉</span>
-                <span>Sending email…</span>
+                <span>Sending from {activeMailFrom()}...</span>
               </div>
             )}
             {emailSendSuccess && (
               <div className="email-status sent">
                 <span className="check-pop" aria-hidden="true">✓</span>
-                <span>Email sent</span>
+                <span>Sent</span>
               </div>
             )}
             <div className="actions" style={{ marginTop: "14px" }}>
