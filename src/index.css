@@ -645,7 +645,7 @@ h2 {
   left: 0;
   right: 0;
   top: calc(100% + 4px);
-  z-index: 30;
+  z-index: 50;
   background: #1a1a1a;
   border: 1px solid #333;
   border-radius: 8px;
@@ -660,7 +660,8 @@ h2 {
   background: transparent;
   border: 0;
   color: var(--text);
-  padding: 10px 12px;
+  padding: 12px;
+  min-height: 48px;
   cursor: pointer;
 }
 

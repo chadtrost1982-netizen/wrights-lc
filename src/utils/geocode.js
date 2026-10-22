@@ -16,6 +16,7 @@ export async function searchAddresses(query) {
   const payload = {
     results: Array.isArray(data.results) ? data.results : [],
     error: data.error || (res.ok ? "" : "Address search failed. Enter kilometres manually."),
+    hint: data.hint || "",
   };
   if (res.ok && payload.results.length) clientCache.set(key, payload);
   return payload;

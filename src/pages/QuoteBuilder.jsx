@@ -114,6 +114,7 @@ export default function QuoteBuilder() {
     distance: "",
   });
   const [addressPoint, setAddressPoint] = useState(null);
+  const addressPointRef = useRef(null);
   const manualDistanceRef = useRef(false);
   const [savedCustomers, setSavedCustomers] = useState([]);
   const [serviceWorkPresets, setServiceWorkPresets] = useState([]);
@@ -503,9 +504,16 @@ export default function QuoteBuilder() {
     [currentQuote.container]
   );
 
-  const calculateDelivery = async (silent = false) => {
+  const rememberPoint = (point) => {
+    addressPointRef.current = point;
+    setAddressPoint(point);
+  };
+
+  const calculateDelivery = async (silent = false, pointOverride = null) => {
     if (manualDistanceRef.current) return;
-    if (!customer.address.trim()) {
+    const picked = pointOverride || addressPointRef.current;
+    const address = String(pointOverride?.label || customer.address || "").trim();
+    if (!address) {
       if (!silent) alert("Enter a customer address first.");
       return;
     }
@@ -514,10 +522,14 @@ export default function QuoteBuilder() {
     setRouteStatus("loading");
     setRouteError("");
     setIsCalculatingDelivery(true);
+    setDeliveryMeta((prev) => (prev ? { ...prev, geometry: null } : prev));
     try {
-      const end = addressPoint && addressPoint.label === customer.address
-        ? { address: customer.address, lat: addressPoint.lat, lon: addressPoint.lon }
-        : { address: customer.address };
+      const end = picked
+        && picked.label === address
+        && Number.isFinite(Number(picked.lat))
+        && Number.isFinite(Number(picked.lon))
+        ? { address, lat: Number(picked.lat), lon: Number(picked.lon) }
+        : { address };
       const start = yardCoords
         ? { address: yardAddress, lat: yardCoords.lat, lon: yardCoords.lon }
         : { address: yardAddress };
@@ -543,7 +555,7 @@ export default function QuoteBuilder() {
       setDelivery(amount);
       setDeliveryMeta({
         startAddress: yardAddress,
-        endAddress: customer.address,
+        endAddress: address,
         startCoords: result.s || null,
         endCoords: result.e || null,
         geometry: result.geometry || null,
@@ -773,7 +785,7 @@ export default function QuoteBuilder() {
     setNotes("");
     setRouteStatus("idle");
     setRouteError("");
-    setAddressPoint(null);
+    rememberPoint(null);
     manualDistanceRef.current = false;
     setShowClearConfirm(false);
   };
@@ -830,6 +842,8 @@ export default function QuoteBuilder() {
                   setCustomer({ ...customer, firstName: first });
                   return;
                 }
+                rememberPoint(null);
+                manualDistanceRef.current = false;
                 setCustomer((prev) => ({
                   ...prev,
                   firstName: found.firstName || first,
@@ -864,16 +878,25 @@ export default function QuoteBuilder() {
 
           <AddressAutocompleteInput
             value={customer.address}
+            resolvedLabel={addressPoint?.label || ""}
             onChange={(address, picked) => {
               manualDistanceRef.current = false;
-              setAddressPoint(
-                picked && Number.isFinite(Number(picked.lat)) && Number.isFinite(Number(picked.lon))
-                  ? { label: address, lat: Number(picked.lat), lon: Number(picked.lon) }
-                  : null
-              );
+              const point = picked && Number.isFinite(Number(picked.lat)) && Number.isFinite(Number(picked.lon))
+                ? {
+                  label: address,
+                  lat: Number(picked.lat),
+                  lon: Number(picked.lon),
+                  precision: picked.precision || "",
+                  hint: picked.hint || "",
+                }
+                : null;
+              rememberPoint(point);
+              if (!point) {
+                setDeliveryMeta((prev) => (prev ? { ...prev, endCoords: null, geometry: null, endAddress: address } : prev));
+              }
               setCustomer((prev) => ({ ...prev, address }));
             }}
-            placeholder="Address"
+            placeholder="Address, town, or postal code"
           />
 
           {estimateType === "container" && (
@@ -1152,19 +1175,37 @@ export default function QuoteBuilder() {
             height={560}
             geometry={deliveryMeta?.geometry || null}
             startCoords={
-              routeStatus === "ready" && deliveryMeta?.startCoords
+              deliveryMeta?.startCoords
                 ? [deliveryMeta.startCoords.lat, deliveryMeta.startCoords.lon]
                 : yardCoords
                   ? [yardCoords.lat, yardCoords.lon]
                   : undefined
             }
             endCoords={
-              routeStatus === "ready" && deliveryMeta?.endCoords
-                ? [deliveryMeta.endCoords.lat, deliveryMeta.endCoords.lon]
-                : undefined
+              addressPoint
+                ? [addressPoint.lat, addressPoint.lon]
+                : deliveryMeta?.endCoords
+                  ? [deliveryMeta.endCoords.lat, deliveryMeta.endCoords.lon]
+                  : undefined
             }
             startLabel={`Yard: ${yardAddress}`}
-            endLabel={`Customer: ${deliveryMeta?.endAddress || ""}`}
+            endLabel={`Customer: ${addressPoint?.label || deliveryMeta?.endAddress || customer.address || ""}`}
+            onEndChange={(lat, lon) => {
+              const label = customer.address.trim() || "Pinned location";
+              const point = {
+                label,
+                lat,
+                lon,
+                precision: "pinned",
+                hint: "Distance uses the blue pin. Type a town name if you want it on the quote.",
+              };
+              rememberPoint(point);
+              if (customer.address.trim() !== label) {
+                setCustomer((prev) => ({ ...prev, address: label }));
+              }
+              manualDistanceRef.current = false;
+              if (estimateType === "container") calculateDelivery(true, point);
+            }}
           />
         </div>
       </div>
