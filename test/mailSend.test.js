@@ -61,6 +61,13 @@ test("a blocked popup keeps the estimate id so the send can resume", () => {
 test("mail failures always have a plain message and a sent file is marked", () => {
   assert.match(plainMailError(null), /not sent/i);
   assert.match(plainMailError({ reason: "wrong-mailbox", signedInAs: "chadtrost@hotmail.com" }), /chadtrost@hotmail.com/);
+  const timedOut = plainMailError({
+    reason: "auth-failed",
+    details: "timed_out: See https://aka.ms/msal.js.errors#timed_out",
+  });
+  assert.match(timedOut, /did not finish in time/i);
+  assert.match(timedOut, /disposalsolutions@outlook.com/);
+  assert.equal(timedOut.includes("aka.ms"), false);
   assert.match(plainMailError({ reason: "send-failed", status: 403, details: "ErrorAccessDenied token_scp=Mail.Send" }), /Send mail/);
   assert.equal(plainMailError({ reason: "send-failed", status: 403, details: "token_scp=Mail.Send" }).includes("token_scp"), false);
   assert.equal(statusLine({ state: "sending", from: "disposalsolutions@outlook.com" }), "Sending from disposalsolutions@outlook.com...");

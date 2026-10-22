@@ -4,10 +4,19 @@ import { encodeGraphPath, ensureDriveFolder } from "./ensureDriveFolder.js";
 import { activeMailFrom, classifyMailAuthError, interpretMailLogin, normalizeEmail, pickAccounts } from "./mailAccounts.js";
 import { markFileSent, plainMailError, writeMailNotice } from "./mailNotice.js";
 import { buildPendingMail, clearPendingMail, readPendingMail, savePendingMail } from "./pendingMail.js";
+import {
+  clearMailRedirect,
+  driveAuthority,
+  MAIL_AUTHORITY,
+  mailRedirectPending,
+  markMailRedirect,
+} from "./mailAuthority.js";
 
 const clientId = import.meta.env.VITE_AZURE_CLIENT_ID || "";
 const tenantId = import.meta.env.VITE_AZURE_TENANT_ID || "common";
 const redirectUri = import.meta.env.VITE_AZURE_REDIRECT_URI || window.location.origin;
+const MAIL_POPUP_BRIDGE_MS = 180000;
+const MAIL_AUTH_DEADLINE_MS = 190000;
 
 const fileScope = "Files.ReadWrite";
 const mailScope = "Mail.Send";
@@ -20,6 +29,7 @@ const SAVE_NOTICE_KEY = "wrights_save_notice";
 const MAIL_CONSENT_ATTEMPT_KEY = "wrights_mail_consent_attempt";
 
 let msalApp = null;
+let msalMailApp = null;
 let msalInitPromise = null;
 let lastRedirectError = "";
 let lastInteractiveAttemptAt = 0;
@@ -60,7 +70,7 @@ function getMsalApp() {
     msalApp = new PublicClientApplication({
       auth: {
         clientId,
-        authority: `https://login.microsoftonline.com/${tenantId}`,
+        authority: driveAuthority(tenantId),
         redirectUri,
         navigateToLoginRequestUrl: false,
       },
@@ -80,6 +90,45 @@ function getMsalApp() {
   return msalApp;
 }
 
+function getMailMsalApp() {
+  if (!clientId) return null;
+  if (!msalMailApp) {
+    msalMailApp = new PublicClientApplication({
+      auth: {
+        clientId,
+        authority: MAIL_AUTHORITY,
+        redirectUri,
+        navigateToLoginRequestUrl: false,
+      },
+      cache: {
+        cacheLocation: "localStorage",
+      },
+      system: {
+        popupBridgeTimeout: MAIL_POPUP_BRIDGE_MS,
+      },
+    });
+  }
+  return msalMailApp;
+}
+
+async function consumeMailRedirect() {
+  const mail = getMailMsalApp();
+  const drive = getMsalApp();
+  if (!mail) {
+    clearMailRedirect(sessionStorage);
+    return;
+  }
+  try {
+    await mail.initialize();
+    await mail.handleRedirectPromise();
+  } catch (err) {
+    lastRedirectError = err?.message || String(err || "Redirect auth failed");
+  } finally {
+    clearMailRedirect(sessionStorage);
+    if (drive) useDriveAccount(drive);
+  }
+}
+
 export async function initializeOneDriveAuth() {
   const app = getMsalApp();
   if (!app) return;
@@ -87,6 +136,11 @@ export async function initializeOneDriveAuth() {
   if (!msalInitPromise) {
     msalInitPromise = (async () => {
       await app.initialize();
+      if (mailRedirectPending(sessionStorage)) {
+        await consumeMailRedirect();
+        useDriveAccount(app);
+        return;
+      }
       const redirectResult = await app.handleRedirectPromise().catch((err) => {
         lastRedirectError = err?.message || String(err || "Redirect auth failed");
         return null;
@@ -445,8 +499,10 @@ function needsInteraction(err) {
   );
 }
 
-async function beginMailRedirect(app) {
+async function beginMailRedirect() {
   const senderAddress = activeMailFrom();
+  const mail = getMailMsalApp();
+  if (!mail) return { ok: false, reason: "not-configured", senderAddress };
   const now = Date.now();
   if (now - lastInteractiveAttemptAt < 30000) {
     return {
@@ -458,24 +514,38 @@ async function beginMailRedirect(app) {
   }
   lastInteractiveAttemptAt = now;
   sessionStorage.setItem(MAIL_CONSENT_ATTEMPT_KEY, String(now));
-  await app.loginRedirect({
-    scopes: mailScopes,
-    loginHint: senderAddress,
-    prompt: "select_account",
-    redirectUri,
-    redirectStartPage: window.location.href,
-  });
+  markMailRedirect(sessionStorage);
+  try {
+    await mail.initialize();
+    await mail.loginRedirect({
+      scopes: mailScopes,
+      loginHint: senderAddress,
+      prompt: "select_account",
+      authority: MAIL_AUTHORITY,
+      redirectUri,
+      redirectStartPage: window.location.href,
+    });
+  } catch (err) {
+    clearMailRedirect(sessionStorage);
+    throw err;
+  }
   return { ok: false, reason: "mail-redirecting", senderAddress };
 }
 
-async function loginMailPopup(app) {
+async function loginMailPopup() {
   const senderAddress = activeMailFrom();
+  const mail = getMailMsalApp();
+  const drive = getMsalApp();
+  if (!mail) return { ok: false, reason: "not-configured", senderAddress };
+  await mail.initialize();
   let result = null;
   try {
-    result = await app.loginPopup({
+    result = await mail.loginPopup({
       scopes: mailScopes,
       prompt: "select_account",
       loginHint: senderAddress,
+      authority: MAIL_AUTHORITY,
+      redirectUri,
     });
   } catch (err) {
     const kind = classifyMailAuthError(err);
@@ -488,14 +558,18 @@ async function loginMailPopup(app) {
       details: err?.message || "Microsoft sign-in failed.",
     };
   } finally {
-    useDriveAccount(app);
+    if (drive) useDriveAccount(drive);
   }
 
   const check = interpretMailLogin(result?.account, senderAddress);
   if (!check.ok) return check;
   if (result?.accessToken) return { ok: true, token: result.accessToken };
   try {
-    const silent = await app.acquireTokenSilent({ account: result.account, scopes: mailScopes });
+    const silent = await mail.acquireTokenSilent({
+      account: result.account,
+      scopes: mailScopes,
+      authority: MAIL_AUTHORITY,
+    });
     if (!silent?.accessToken) {
       return { ok: false, reason: "auth-failed", senderAddress, details: "Microsoft did not return a mail token." };
     }
@@ -508,22 +582,29 @@ async function loginMailPopup(app) {
       details: err?.message || "Microsoft did not return a mail token.",
     };
   } finally {
-    useDriveAccount(app);
+    if (drive) useDriveAccount(drive);
   }
 }
 
 async function getMailToken({ interactive = "popup" } = {}) {
-  const app = getMsalApp();
-  if (!app) return { ok: false, reason: "not-configured", senderAddress: activeMailFrom() };
+  const drive = getMsalApp();
+  const mail = getMailMsalApp();
+  if (!drive || !mail) return { ok: false, reason: "not-configured", senderAddress: activeMailFrom() };
   await initializeOneDriveAuth();
-  const { mailAccount } = accountChoices(app);
-  useDriveAccount(app);
+  await mail.initialize();
+  const { mailAccount } = accountChoices(mail);
+  useDriveAccount(drive);
   if (mailAccount) {
     try {
-      const silent = await app.acquireTokenSilent({ account: mailAccount, scopes: mailScopes });
-      useDriveAccount(app);
+      const silent = await mail.acquireTokenSilent({
+        account: mailAccount,
+        scopes: mailScopes,
+        authority: MAIL_AUTHORITY,
+      });
+      useDriveAccount(drive);
       if (silent?.accessToken) return { ok: true, token: silent.accessToken };
     } catch (err) {
+      useDriveAccount(drive);
       if (interactive === "none" || !needsInteraction(err)) {
         return {
           ok: false,
@@ -545,13 +626,13 @@ async function getMailToken({ interactive = "popup" } = {}) {
   if (interactive === "none") {
     return { ok: false, reason: "auth-failed", senderAddress: activeMailFrom(), details: "Send mail still needs a sign-in." };
   }
-  const popup = await loginMailPopup(app);
+  const popup = await loginMailPopup();
   if (popup.token || popup.reason !== "popup-blocked") return popup;
   if (interactive !== "popup") return popup;
   return popup;
 }
 
-async function persistAndRedirectMail(app, fields) {
+async function persistAndRedirectMail(fields) {
   const saved = savePendingMail(buildPendingMail(fields), sessionStorage);
   if (!saved.ok) {
     return {
@@ -567,8 +648,18 @@ async function persistAndRedirectMail(app, fields) {
     fileName: fields.listFileName,
     message: `Sending from ${activeMailFrom()}...`,
   });
-  const redirected = await beginMailRedirect(app);
-  return redirected.reason === "mail-signin-required" ? redirected : { ok: false, reason: "mail-redirecting", senderAddress: activeMailFrom() };
+  try {
+    const redirected = await beginMailRedirect();
+    return redirected.reason === "mail-signin-required" ? redirected : { ok: false, reason: "mail-redirecting", senderAddress: activeMailFrom() };
+  } catch (err) {
+    clearPendingMail(sessionStorage);
+    return {
+      ok: false,
+      reason: "auth-failed",
+      senderAddress: activeMailFrom(),
+      details: err?.message || "Microsoft sign-in did not finish.",
+    };
+  }
 }
 
 async function deliverMail({ token, to, cc, subject, body, fileName, blob }) {
@@ -677,12 +768,18 @@ export async function sendGraphEmailWithAttachment({
     if (!clientId) return { ok: false, reason: "not-configured", senderAddress: activeMailFrom() };
     if (!to || !subject || !fileName || !blob) return { ok: false, reason: "invalid-input", senderAddress: activeMailFrom() };
 
-    const mailAuth = await withTimeout(getMailToken({ interactive: "popup" }), 90000, "Authentication");
+    writeMailNotice({
+      state: "sending",
+      from: activeMailFrom(),
+      fileName: listFileName || fileName,
+      message: `Sending from ${activeMailFrom()}...`,
+    });
+
+    const mailAuth = await withTimeout(getMailToken({ interactive: "popup" }), MAIL_AUTH_DEADLINE_MS, "Authentication");
     if (!mailAuth?.token) {
       if (mailAuth?.reason === "popup-blocked") {
-        const app = getMsalApp();
         const contentBase64 = toBase64(await blob.arrayBuffer());
-        return persistAndRedirectMail(app, {
+        return persistAndRedirectMail({
           kind,
           listFileName: listFileName || fileName,
           attachmentName: fileName,
