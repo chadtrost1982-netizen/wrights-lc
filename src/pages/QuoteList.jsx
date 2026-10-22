@@ -14,6 +14,7 @@ import {
 import { activeOneDriveFolder } from "../utils/oneDrivePaths";
 import { activeMailFrom } from "../utils/mailAccounts";
 import { buildEstimatePdfFromExcelFile } from "../utils/estimatePdf";
+import { defaultMailBody, mailAttachmentName, mailSubject } from "../utils/mailMessage";
 import { finishMailAttempt, MAIL_NOTICE_EVENT, plainMailError } from "../utils/mailNotice";
 import * as XLSX from "xlsx";
 
@@ -93,10 +94,8 @@ async function extractCustomerEmailFromEstimateFile(file) {
   }
 }
 
-function displayEmailAttachmentName(fileName) {
-  const name = String(fileName || "");
-  if (/\.(xlsx|xlsm|xls)$/i.test(name)) return name.replace(/\.(xlsx|xlsm|xls)$/i, ".pdf");
-  return name;
+function estimateAttachmentName(fileName) {
+  return mailAttachmentName({ kind: "estimate", fileName });
 }
 
 export default function QuoteList() {
@@ -107,7 +106,7 @@ export default function QuoteList() {
   const [emailTo, setEmailTo] = useState("");
   const [emailCc, setEmailCc] = useState("");
   const [emailSubject, setEmailSubject] = useState("");
-  const [emailBody, setEmailBody] = useState("Please find your estimate attached.");
+  const [emailBody, setEmailBody] = useState("");
   const [sending, setSending] = useState(false);
   const [sendSuccess, setSendSuccess] = useState(false);
   const [customerName, setCustomerName] = useState("");
@@ -203,9 +202,10 @@ export default function QuoteList() {
   const openEmailModal = async (fileName) => {
     setEmailFile(fileName);
     setSendSuccess(false);
-    setEmailSubject(`Estimate - ${displayEmailAttachmentName(fileName)}`);
     const guessedCustomer = guessCustomerFromFileName(fileName);
     setCustomerName(guessedCustomer);
+    setEmailSubject(mailSubject({ kind: "estimate", fileName }));
+    setEmailBody(defaultMailBody({ kind: "estimate", fileName, customerName: guessedCustomer }));
     const existing = customerContacts.find((c) => c.name.toLowerCase() === guessedCustomer.toLowerCase());
     let inferredEmail = existing?.email || "";
     try {
@@ -233,10 +233,14 @@ export default function QuoteList() {
     }
     setEmailTo(inferredEmail);
     setEmailCc("");
-    setEmailBody("Please find your estimate attached.");
   };
 
   const onCustomerNameChange = (name) => {
+    setEmailBody((current) => {
+      const previous = defaultMailBody({ kind: "estimate", fileName: emailFile, customerName });
+      if (current !== previous) return current;
+      return defaultMailBody({ kind: "estimate", fileName: emailFile, customerName: name });
+    });
     setCustomerName(name);
     const existing = customerContacts.find((c) => c.name.toLowerCase() === name.trim().toLowerCase());
     if (existing?.email) setEmailTo(existing.email);
@@ -254,11 +258,11 @@ export default function QuoteList() {
       const gate = await ensureBusinessMailbox({
         kind: "estimate",
         listFileName: emailFile,
-        attachmentName: displayEmailAttachmentName(emailFile),
+        attachmentName: estimateAttachmentName(emailFile),
         itemId: estimateFiles.find((item) => item.name === emailFile)?.id || "",
         to: emailTo,
         cc: emailCc,
-        subject: emailSubject || `Estimate - ${emailFile}`,
+        subject: emailSubject || mailSubject({ kind: "estimate", fileName: emailFile }),
         body: emailBody,
         customerName,
         regenerate: estimateSource === "onedrive",
@@ -300,7 +304,7 @@ export default function QuoteList() {
         String(file.type || "").includes("excel");
 
       let blobToSend = file;
-      let nameToSend = emailFile;
+      const nameToSend = estimateAttachmentName(emailFile);
       if (looksLikeExcelName || looksLikeExcelMime) {
         const rawPdfBlob = await buildEstimatePdfFromExcelFile(file);
         if (!rawPdfBlob) {
@@ -310,13 +314,11 @@ export default function QuoteList() {
         }
         const pdfBytes = await rawPdfBlob.arrayBuffer();
         blobToSend = new Blob([pdfBytes], { type: "application/pdf" });
-        const baseName = String(emailFile || "").replace(/\.[^.]+$/, "");
-        nameToSend = `${baseName}.pdf`;
       }
       const result = await sendGraphEmailWithAttachment({
         to: emailTo,
         cc: emailCc,
-        subject: emailSubject || `Estimate - ${emailFile}`,
+        subject: emailSubject || mailSubject({ kind: "estimate", fileName: emailFile }),
         body: emailBody,
         fileName: nameToSend,
         blob: blobToSend,
@@ -519,7 +521,7 @@ export default function QuoteList() {
           <div className="modal-content">
             <h3>Email Estimate</h3>
             <p><strong>From:</strong> {activeMailFrom()}</p>
-            <p><strong>Attachment:</strong> {displayEmailAttachmentName(emailFile)}</p>
+            <p><strong>Attachment:</strong> {estimateAttachmentName(emailFile)}</p>
             <label>Customer</label>
             <input
               value={customerName}
