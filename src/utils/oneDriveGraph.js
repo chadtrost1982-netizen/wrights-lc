@@ -6,6 +6,7 @@ import { markFileSent, plainMailError, writeMailNotice } from "./mailNotice.js";
 import { clearPendingMailAll, keepPendingSend, readPendingMailFirst } from "./pendingMail.js";
 import { clearPendingBlob, readPendingBlob, savePendingBlob } from "./pendingMailBlob.js";
 import { buildEstimatePdfFromExcelFile } from "./estimatePdf.js";
+import { buildOutgoingMessage } from "./mailMessage.js";
 import {
   clearMailRedirectAll,
   driveAuthority,
@@ -724,35 +725,17 @@ async function deliverMail({ token, to, cc, subject, body, fileName, blob }) {
 
     const arrayBuffer = await blob.arrayBuffer();
     const contentBytes = toBase64(arrayBuffer);
-    const toRecipients = String(to)
-      .split(/[;,]/)
-      .map((x) => x.trim())
-      .filter(Boolean)
-      .map((address) => ({ emailAddress: { address } }));
-    const ccRecipients = String(cc)
-      .split(/[;,]/)
-      .map((x) => x.trim())
-      .filter(Boolean)
-      .map((address) => ({ emailAddress: { address } }));
-
     const payload = {
-      message: {
+      message: buildOutgoingMessage({
+        fromAddress: senderAddress,
         subject,
-        body: {
-          contentType: "Text",
-          content: body || "",
-        },
-        toRecipients,
-        ccRecipients,
-        attachments: [
-          {
-            "@odata.type": "#microsoft.graph.fileAttachment",
-            name: fileName,
-            contentType: blob.type || "application/octet-stream",
-            contentBytes,
-          },
-        ],
-      },
+        body,
+        to,
+        cc,
+        fileName,
+        contentType: blob.type || "",
+        contentBytes,
+      }),
       saveToSentItems: true,
     };
 

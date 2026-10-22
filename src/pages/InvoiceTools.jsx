@@ -22,6 +22,7 @@ import {
 import { allocateDocumentNumber } from "../utils/documentCounters";
 import { activeOneDriveFolder } from "../utils/oneDrivePaths";
 import { activeMailFrom } from "../utils/mailAccounts";
+import { defaultMailBody, mailAttachmentName, mailSubject } from "../utils/mailMessage";
 import { finishMailAttempt, MAIL_NOTICE_EVENT, plainMailError } from "../utils/mailNotice";
 
 const MAX_WHEEL_LINES = 50;
@@ -454,7 +455,7 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
   const [emailTo, setEmailTo] = useState("");
   const [emailCc, setEmailCc] = useState("");
   const [emailSubject, setEmailSubject] = useState("");
-  const [emailBody, setEmailBody] = useState("Please find your invoice attached.");
+  const [emailBody, setEmailBody] = useState("");
   const [sendingEmail, setSendingEmail] = useState(false);
   const [emailSendSuccess, setEmailSendSuccess] = useState(false);
   const [emailCustomerName, setEmailCustomerName] = useState("");
@@ -1195,11 +1196,16 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
 
     setEmailTo(nextEmailTo);
     setEmailCc("");
-    setEmailSubject(`Invoice - ${fileName}`);
-    setEmailBody("Please find your invoice attached.");
+    setEmailSubject(mailSubject({ kind: "invoice", fileName }));
+    setEmailBody(defaultMailBody({ kind: "invoice", fileName, customerName: guessedCustomer }));
   };
 
   const onEmailCustomerChange = (name) => {
+    setEmailBody((current) => {
+      const previous = defaultMailBody({ kind: "invoice", fileName: emailFile, customerName: emailCustomerName });
+      if (current !== previous) return current;
+      return defaultMailBody({ kind: "invoice", fileName: emailFile, customerName: name });
+    });
     setEmailCustomerName(name);
     const existing = customerContacts.find((c) => c.name.toLowerCase() === name.trim().toLowerCase());
     if (existing?.email) setEmailTo(existing.email);
@@ -1217,11 +1223,11 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
       const gate = await ensureBusinessMailbox({
         kind: "invoice",
         listFileName: emailFile,
-        attachmentName: emailFile,
+        attachmentName: mailAttachmentName({ kind: "invoice", fileName: emailFile }),
         itemId: emailFileEntry?.id || "",
         to: emailTo,
         cc: emailCc,
-        subject: emailSubject || `Invoice - ${emailFile}`,
+        subject: emailSubject || mailSubject({ kind: "invoice", fileName: emailFile }),
         body: emailBody,
         customerName: emailCustomerName,
         regenerate: graphMode,
@@ -1257,9 +1263,9 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
       const result = await sendGraphEmailWithAttachment({
         to: emailTo,
         cc: emailCc,
-        subject: emailSubject || `Invoice - ${emailFile}`,
+        subject: emailSubject || mailSubject({ kind: "invoice", fileName: emailFile }),
         body: emailBody,
-        fileName: emailFile,
+        fileName: mailAttachmentName({ kind: "invoice", fileName: emailFile }),
         blob: fileBlob,
         listFileName: emailFile,
         kind: "invoice",
@@ -1462,7 +1468,7 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
           <div className="modal-content">
             <h3>Email Invoice</h3>
             <p><strong>From:</strong> {activeMailFrom()}</p>
-            <p><strong>Attachment:</strong> {emailFile}</p>
+            <p><strong>Attachment:</strong> {mailAttachmentName({ kind: "invoice", fileName: emailFile })}</p>
             <p style={{ marginTop: "-6px", color: "#4a4a4a", fontSize: "12px" }}>
               Source: {graphMode
                 ? `OneDrive${emailFileEntry?.id ? " (selected item)" : " (name lookup)"}`

@@ -555,8 +555,8 @@ h2 {
 }
 
 .modal-content textarea {
-  height: 80px;
-  resize: none;
+  height: 220px;
+  resize: vertical;
 }
 
 /* --------------------------------------------------

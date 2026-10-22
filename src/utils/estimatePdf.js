@@ -2,6 +2,7 @@ import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 
 let cachedLogoDataUrl = null;
+const LOGO_MAX_WIDTH = 400;
 
 function toBase64FromBytes(bytes) {
   let binary = "";
@@ -12,11 +13,47 @@ function toBase64FromBytes(bytes) {
   return btoa(binary);
 }
 
+/** The printed logo stays the same size. A huge source image is shrunk before it is embedded. */
+export function logoPixelSize(width, height, maxWidth = LOGO_MAX_WIDTH) {
+  const sourceWidth = Number(width) || 0;
+  const sourceHeight = Number(height) || 0;
+  if (sourceWidth <= 0 || sourceHeight <= 0) return { width: 0, height: 0 };
+  const targetWidth = Math.min(maxWidth, sourceWidth);
+  const targetHeight = Math.max(1, Math.round(sourceHeight * (targetWidth / sourceWidth)));
+  return { width: targetWidth, height: targetHeight };
+}
+
+function drawLogo(source, width, height) {
+  if (typeof document === "undefined") return "";
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return "";
+  ctx.drawImage(source, 0, 0, width, height);
+  return canvas.toDataURL("image/png");
+}
+
 async function getLogoDataUrl() {
   if (cachedLogoDataUrl) return cachedLogoDataUrl;
   const res = await fetch("/disposal-logo.png");
   if (!res.ok) return null;
-  const buf = await res.arrayBuffer();
+  const blob = await res.blob();
+  try {
+    if (typeof createImageBitmap === "function") {
+      const bitmap = await createImageBitmap(blob);
+      const size = logoPixelSize(bitmap.width, bitmap.height);
+      const shrunk = size.width > 0 ? drawLogo(bitmap, size.width, size.height) : "";
+      bitmap.close?.();
+      if (shrunk) {
+        cachedLogoDataUrl = shrunk;
+        return shrunk;
+      }
+    }
+  } catch {
+    // Use the original file if the browser cannot resize it.
+  }
+  const buf = await blob.arrayBuffer();
   const b64 = toBase64FromBytes(new Uint8Array(buf));
   cachedLogoDataUrl = `data:image/png;base64,${b64}`;
   return cachedLogoDataUrl;
@@ -76,7 +113,7 @@ export async function buildEstimatePdfFromExcelFile(file) {
   try {
     const logoDataUrl = await getLogoDataUrl();
     if (logoDataUrl) {
-      doc.addImage(logoDataUrl, "PNG", left, y - 24, 136, 45);
+      doc.addImage(logoDataUrl, "PNG", left, y - 24, 136, 45, "logo", "FAST");
     }
   } catch {
     // Keep PDF export working even if logo fails to load.
