@@ -1,7 +1,7 @@
 import { activeMailFrom } from "./mailAccounts.js";
 
 export const MAIL_DISPLAY_NAME = "Disposal Solutions";
-export const MAIL_PHONE = "416-889-5284";
+export const MAIL_PHONES = ["416-889-5284", "705-707-6064"];
 
 export function documentNumber(fileName, kind = "estimate") {
   const text = String(fileName || "");
@@ -61,7 +61,7 @@ export function defaultMailBody({ kind = "estimate", fileName = "", customerName
   const hello = who ? `Hi ${who},` : "Hi,";
   const number = documentNumber(fileName, kind);
   const ref = number ? ` #${number}` : "";
-  const signOff = `Thanks,\nChad\n${MAIL_DISPLAY_NAME}\n${MAIL_PHONE}\n${activeMailFrom()}`;
+  const signOff = `Thanks,\nChad\n${MAIL_DISPLAY_NAME}\n${MAIL_PHONES.join("\n")}\n${activeMailFrom()}`;
   if (kind === "invoice") {
     return `${hello}\n\nThanks for your business. Your invoice${ref} is attached. Please use it for payment, and let me know if you have any questions.\n\n${signOff}`;
   }
