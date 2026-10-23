@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useSettingsStore } from "../store/settingsStore";
 import { getRouteByAddress } from "../utils/routing";
 import {
@@ -36,6 +36,7 @@ export default function Settings() {
 
   const [dest, setDest] = useState("");
   const [destPoint, setDestPoint] = useState(null);
+  const destPointRef = useRef(null);
   const [distance, setDistance] = useState(null);
   const [manualKm, setManualKm] = useState("");
   const [routeError, setRouteError] = useState("");
@@ -109,10 +110,16 @@ export default function Settings() {
     }
   };
 
-  const handleDistance = async () => {
+  const rememberDest = (point) => {
+    destPointRef.current = point;
+    setDestPoint(point);
+  };
+
+  const handleDistance = async (point = destPointRef.current) => {
     setRouteError("");
-    const end = destPoint && destPoint.label === dest
-      ? { address: dest, lat: destPoint.lat, lon: destPoint.lon }
+    setRouteGeometry(null);
+    const end = point && Number.isFinite(Number(point.lat)) && Number.isFinite(Number(point.lon))
+      ? { address: point.label || dest || "Pinned location", lat: Number(point.lat), lon: Number(point.lon) }
       : { address: dest };
     const result = await getRouteByAddress({ address: yardAddress }, end);
     const km = result?.distanceKm ?? null;
@@ -298,15 +305,22 @@ export default function Settings() {
         <label>Destination Address</label>
         <AddressAutocompleteInput
           value={dest}
+          resolvedLabel={destPoint?.label || ""}
           onChange={(address, picked) => {
             setDest(address);
-            setDestPoint(
-              picked && Number.isFinite(Number(picked.lat))
-                ? { label: address, lat: Number(picked.lat), lon: Number(picked.lon) }
-                : null
-            );
+            const point = picked && Number.isFinite(Number(picked.lat)) && Number.isFinite(Number(picked.lon))
+              ? {
+                label: address,
+                lat: Number(picked.lat),
+                lon: Number(picked.lon),
+                precision: picked.precision || "",
+                hint: picked.hint || "",
+              }
+              : null;
+            rememberDest(point);
+            if (!point) setCoords((prev) => (prev ? { ...prev, e: null } : prev));
           }}
-          placeholder="Enter customer address"
+          placeholder="Address, town, or postal code"
         />
 
         <label>Kilometres (optional override)</label>
@@ -355,13 +369,28 @@ export default function Settings() {
           </div>
         )}
 
-        {coords?.s && coords?.e && (
-          <InteractiveMap
-            geometry={routeGeometry}
-            startCoords={[coords.s.lat, coords.s.lon]}
-            endCoords={[coords.e.lat, coords.e.lon]}
-          />
-        )}
+        <InteractiveMap
+          mapId="settings-distance-map"
+          height={320}
+          geometry={routeGeometry}
+          startCoords={coords?.s ? [coords.s.lat, coords.s.lon] : undefined}
+          endCoords={
+            destPoint
+              ? [destPoint.lat, destPoint.lon]
+              : coords?.e
+                ? [coords.e.lat, coords.e.lon]
+                : undefined
+          }
+          startLabel={yardAddress}
+          endLabel={destPoint?.label || dest || "Destination"}
+          onEndChange={(lat, lon) => {
+            const label = dest.trim() || "Pinned location";
+            const point = { label, lat, lon, precision: "pinned", hint: "Distance uses the blue pin." };
+            rememberDest(point);
+            if (dest.trim() !== label) setDest(label);
+            handleDistance(point);
+          }}
+        />
       </div>
     </div>
   );

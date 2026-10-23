@@ -9,5 +9,9 @@ export async function handleGeocode(req, res) {
   const url = new URL(req.url || "/", "http://localhost");
   const q = url.searchParams.get("q") || "";
   const found = await searchAddresses(q);
-  sendJson(res, 200, { results: found.results || [], error: found.error || "" });
+  sendJson(res, 200, {
+    results: found.results || [],
+    error: found.error || "",
+    hint: found.hint || "",
+  });
 }

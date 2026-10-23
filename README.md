@@ -13,7 +13,7 @@ Wholesale container and modification costs are not in the website bundle. The br
 
 Invoice and estimate numbers are separate sequences, reserved in one OneDrive file, `Desktop/Business/Disposal Solutions/counters.json`, so the PC and the phone cannot issue the same number. The file starts from the highest numbers already handed out: estimate 511 and invoice 509 (each of those was issued twice). The next estimate is 512 and the next invoice is 510. Existing files are not renumbered, and an invoice still keeps its estimate reference in the file name. In Settings, the boxes are the last number already used. The next document is one higher. Raising a number is allowed; lowering it is not. If a device already has a higher number saved locally, the shared counter moves up to that number before the next one is issued.
 
-Driving distance uses the coordinates from the address suggestion you pick, and address search is limited to Ontario, Canada. If a route cannot be calculated, type the kilometres in the distance box and the quote still prices delivery. The server calls the public OSRM demo by default. Set `ORS_API_KEY` in Vercel to switch to OpenRouteService without putting the key in the browser.
+Driving distance uses the address you pick. Suggestions are biased to Ontario and shown as a short label such as `123 Main St, Sudbury, ON`. If the house is not in the map data, the suggestion falls back to the town or postal area, and you can tap the map or drag the blue pin. If a route still cannot be calculated, type the kilometres in the distance box and the quote still prices delivery. No extra map key is required. The server calls the public OSRM demo by default. Set `ORS_API_KEY` in Vercel to switch to OpenRouteService without putting the key in the browser.
 
 ### Required for OneDrive Auto-Save (Option 1)
 
@@ -163,7 +163,7 @@ No redeploy is required after that. Repeat the send steps above.
 
 ## Driving distance
 
-The browser calls `/api/geocode` and `/api/route`. Address search goes to Nominatim with a 1 request per second limit, a 24 hour cache, and an identifying app header, and it prefers Ontario. Routing uses OSRM unless `ORS_API_KEY` is set.
+The browser calls `/api/geocode` and `/api/route`. Address search tries Photon (Komoot) first, limited to an Ontario box, then Nominatim with `countrycodes=ca` if Photon has no acceptable hit. Both stay on the server. Nominatim is limited to about one request per second and sends an identifying app header. Successful lookups are cached for 24 hours. A missing house number falls back to the town or the postal area and is marked approximate. Routing uses OSRM unless `ORS_API_KEY` is set. No Google key is used.
 
 ```env
 OSRM_BASE_URL=https://router.project-osrm.org
