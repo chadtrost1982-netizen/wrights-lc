@@ -5,6 +5,7 @@ import {
   DEFAULT_COUNTERS_PATH,
   DEFAULT_ESTIMATES_PATH,
   DEFAULT_INVOICES_PATH,
+  activeWheelPresetsPath,
   parentDriveFolder,
   resolveCountersPath,
   resolveOneDriveFolder,
@@ -17,6 +18,9 @@ test("new invoices and estimates default to Disposal Solutions on the Desktop", 
   assert.equal(DEFAULT_INVOICES_PATH, "Desktop/Business/Disposal Solutions/Invoices");
   assert.equal(resolveCountersPath({}), DEFAULT_COUNTERS_PATH);
   assert.equal(parentDriveFolder(DEFAULT_COUNTERS_PATH), "Desktop/Business/Disposal Solutions");
+  assert.equal(activeWheelPresetsPath(), "Desktop/Business/Disposal Solutions/wheel-presets.json");
+  assert.equal(activeWheelPresetsPath().endsWith("counters.json"), false);
+  assert.equal(parentDriveFolder(activeWheelPresetsPath()), parentDriveFolder(DEFAULT_COUNTERS_PATH));
 });
 
 test("a leftover Wrights L.C. legacy path does not receive new files", () => {
