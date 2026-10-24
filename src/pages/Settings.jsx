@@ -13,6 +13,7 @@ import {
 } from "../utils/autoSaveFolder";
 import { useEffect } from "react";
 import { loadDocumentCounters, saveDocumentCounters } from "../utils/documentCounters";
+import WheelPresetEditor from "../components/WheelPresetEditor";
 import { sharedCounterPath } from "../utils/oneDriveGraph";
 import { activeOneDriveFolder } from "../utils/oneDrivePaths";
 
@@ -259,6 +260,8 @@ export default function Settings() {
           Save Counters
         </button>
       </div>
+
+      <WheelPresetEditor />
 
       <div className="settings-card">
         <h3>Auto-Save Folders (Read-Only)</h3>
