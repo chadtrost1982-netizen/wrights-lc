@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import ExcelJS from "exceljs";
 import jsPDF from "jspdf";
@@ -21,6 +21,8 @@ import {
 } from "../utils/oneDriveGraph";
 import { allocateDocumentNumber } from "../utils/documentCounters";
 import { activeOneDriveFolder } from "../utils/oneDrivePaths";
+import { visibleCustomers, visibleWorks } from "../utils/wheelPresetCore";
+import { loadSharedWheelBook, rememberWheelLines } from "../utils/wheelPresetDrive";
 import { activeMailFrom } from "../utils/mailAccounts";
 import { defaultMailBody, mailAttachmentName, mailSubject } from "../utils/mailMessage";
 import { finishMailAttempt, MAIL_NOTICE_EVENT, plainMailError } from "../utils/mailNotice";
@@ -445,6 +447,7 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
   const [fileName, setFileName] = useState("");
   const [rows, setRows] = useState([]);
   const [wheelLines, setWheelLines] = useState(Array.from({ length: 8 }, () => blankWheelLine()));
+  const wheelLinesRef = useRef(wheelLines);
   const [refEstNumber, setRefEstNumber] = useState("");
   const [folderFiles, setFolderFiles] = useState([]);
   const [folderName, setFolderName] = useState("");
@@ -545,6 +548,23 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
     files.sort((a, b) => extractInvoiceNumber(b.name) - extractInvoiceNumber(a.name));
     setFolderFiles(files);
   };
+
+  useEffect(() => {
+    wheelLinesRef.current = wheelLines;
+  }, [wheelLines]);
+
+  useEffect(() => {
+    if (invoiceType !== "wheel") return undefined;
+    let active = true;
+    loadSharedWheelBook().then((result) => {
+      if (!active || !result?.book) return;
+      setCustomerOptions(visibleCustomers(result.book));
+      setWorkPresets(visibleWorks(result.book));
+    });
+    return () => {
+      active = false;
+    };
+  }, [invoiceType]);
 
   useEffect(() => {
     loadFolderContents();
@@ -767,7 +787,13 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
     const saveRows = getRowsForSave();
     if (!saveRows.length) return;
 
-    if (isWheelStyle) {
+    if (invoiceType === "wheel") {
+      const saved = await rememberWheelLines(wheelLines);
+      if (saved?.book) {
+        setCustomerOptions(visibleCustomers(saved.book));
+        setWorkPresets(visibleWorks(saved.book));
+      }
+    } else if (isWheelStyle) {
       learnWheelValues(wheelLines);
     }
 
@@ -835,7 +861,13 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
       const saveRows = getRowsForSave();
       if (!saveRows.length) return;
 
-      if (isWheelStyle) {
+      if (invoiceType === "wheel") {
+        const saved = await rememberWheelLines(wheelLines);
+        if (saved?.book) {
+          setCustomerOptions(visibleCustomers(saved.book));
+          setWorkPresets(visibleWorks(saved.book));
+        }
+      } else if (isWheelStyle) {
         learnWheelValues(wheelLines);
       }
 
@@ -1318,7 +1350,21 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
   };
 
   const updateWheelLine = (index, patch) => {
-    setWheelLines((prev) => prev.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+    const next = wheelLinesRef.current.map((row, i) => (i === index ? { ...row, ...patch } : row));
+    wheelLinesRef.current = next;
+    setWheelLines(next);
+  };
+
+  const commitWheelLine = (index) => {
+    if (invoiceType !== "wheel") return;
+    const line = wheelLinesRef.current[index];
+    if (!line) return;
+    if (!String(line.customer || "").trim() && !String(line.work || "").trim()) return;
+    rememberWheelLines([line]).then((result) => {
+      if (!result?.book) return;
+      setCustomerOptions(visibleCustomers(result.book));
+      setWorkPresets(visibleWorks(result.book));
+    });
   };
 
   const updateWorkWithPreset = (index, work) => {
@@ -1591,6 +1637,7 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
                     <input
                       value={line.customer}
                       onChange={(e) => updateWheelLine(i, { customer: e.target.value })}
+                      onBlur={() => commitWheelLine(i)}
                       placeholder="Customer"
                       list="customer-options"
                     />
@@ -1599,6 +1646,7 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
                     <input
                       value={line.work}
                       onChange={(e) => updateWorkWithPreset(i, e.target.value)}
+                      onBlur={() => commitWheelLine(i)}
                       placeholder="Work performed"
                       list="work-options"
                     />
@@ -1615,6 +1663,7 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
                     <input
                       value={line.rate}
                       onChange={(e) => updateWheelLine(i, { rate: e.target.value })}
+                      onBlur={() => commitWheelLine(i)}
                       placeholder="0.00"
                       type="number"
                       step="0.01"

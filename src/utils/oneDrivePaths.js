@@ -42,6 +42,11 @@ export function activeCountersPath() {
   return resolveCountersPath({ counters: env.VITE_ONEDRIVE_COUNTERS_PATH });
 }
 
+export function activeWheelPresetsPath() {
+  const folder = parentDriveFolder(activeCountersPath());
+  return `${folder}/wheel-presets.json`;
+}
+
 export function parentDriveFolder(filePath) {
   const parts = cleanDrivePath(filePath).split("/").filter(Boolean);
   parts.pop();

@@ -1,5 +1,5 @@
 import { PublicClientApplication } from "@azure/msal-browser";
-import { activeCountersPath, activeOneDriveFolder, parentDriveFolder } from "./oneDrivePaths.js";
+import { activeCountersPath, activeOneDriveFolder, activeWheelPresetsPath, parentDriveFolder } from "./oneDrivePaths.js";
 import { encodeGraphPath, ensureDriveFolder } from "./ensureDriveFolder.js";
 import { activeMailFrom, classifyMailAuthError, interpretMailLogin, normalizeEmail, pickAccounts } from "./mailAccounts.js";
 import { markFileSent, plainMailError, writeMailNotice } from "./mailNotice.js";
@@ -973,27 +973,27 @@ export function sharedCounterPath() {
   return countersFilePath();
 }
 
-export function createCounterDrive() {
-  const encoded = encodeGraphPath(countersFilePath());
+function createJsonDrive(filePath, messages) {
+  const encoded = encodeGraphPath(filePath);
   const itemUrl = `${graphEndpoint}/me/drive/root:/${encoded}`;
 
   return {
     async read() {
       if (!clientId) {
-        const err = new Error("Microsoft sign-in is not configured, so numbers stay on this device.");
+        const err = new Error(messages.notConfigured);
         err.code = "not-configured";
         throw err;
       }
       const token = await getFilesTokenSilent();
       if (!token) {
-        const err = new Error("Sign in with Microsoft to share invoice and estimate numbers. Until then, these are the last numbers on this device.");
+        const err = new Error(messages.authFailed);
         err.code = "auth-failed";
         throw err;
       }
       const metaRes = await fetch(itemUrl, { headers: { Authorization: `Bearer ${token}` } });
       if (metaRes.status === 404) return { found: false };
       if (!metaRes.ok) {
-        const err = new Error("Could not read the shared number counter on OneDrive. Check your connection and try again.");
+        const err = new Error(messages.readFailed);
         err.code = "read-failed";
         throw err;
       }
@@ -1001,14 +1001,14 @@ export function createCounterDrive() {
       const contentRes = await fetch(`${itemUrl}:/content`, { headers: { Authorization: `Bearer ${token}` } });
       if (contentRes.status === 404) return { found: false };
       if (!contentRes.ok) {
-        const err = new Error("Could not read the shared number counter on OneDrive. Check your connection and try again.");
+        const err = new Error(messages.readFailed);
         err.code = "read-failed";
         throw err;
       }
       const value = await contentRes.json().catch(() => null);
       if (!value || typeof value !== "object") {
-        const err = new Error("The shared counter file on OneDrive could not be read. No new number was issued.");
-        err.code = "invalid-counter";
+        const err = new Error(messages.invalid);
+        err.code = "invalid-file";
         throw err;
       }
       return { found: true, etag: meta.eTag || contentRes.headers.get("etag") || "", value };
@@ -1017,7 +1017,7 @@ export function createCounterDrive() {
     async write({ etag, create, value }) {
       const token = await getFilesTokenSilent();
       if (!token) {
-        const err = new Error("Sign in with Microsoft to share invoice and estimate numbers. Until then, these are the last numbers on this device.");
+        const err = new Error(messages.authFailed);
         err.code = "auth-failed";
         throw err;
       }
@@ -1030,10 +1030,10 @@ export function createCounterDrive() {
       const folderReady = await ensureDriveFolder(fetch, {
         graphEndpoint,
         token,
-        folderPath: parentDriveFolder(countersFilePath()),
+        folderPath: parentDriveFolder(filePath),
       });
       if (!folderReady.ok) {
-        const err = new Error("Could not create the Disposal Solutions folder on OneDrive. No new number was issued.");
+        const err = new Error(messages.folderFailed);
         err.code = "folder-create-failed";
         throw err;
       }
@@ -1044,11 +1044,39 @@ export function createCounterDrive() {
       });
       if (res.status === 409 || res.status === 412) return { ok: false, conflict: true };
       if (!res.ok) {
-        const err = new Error("Could not save the shared number counter on OneDrive. No new number was issued.");
+        const err = new Error(messages.writeFailed);
         err.code = "write-failed";
         throw err;
       }
       return { ok: true, conflict: false, etag: res.headers.get("etag") || "" };
     },
   };
+}
+
+const COUNTER_DRIVE_MESSAGES = {
+  notConfigured: "Microsoft sign-in is not configured, so numbers stay on this device.",
+  authFailed: "Sign in with Microsoft to share invoice and estimate numbers. Until then, these are the last numbers on this device.",
+  readFailed: "Could not read the shared number counter on OneDrive. Check your connection and try again.",
+  invalid: "The shared counter file on OneDrive could not be read. No new number was issued.",
+  folderFailed: "Could not create the Disposal Solutions folder on OneDrive. No new number was issued.",
+  writeFailed: "Could not save the shared number counter on OneDrive. No new number was issued.",
+};
+
+export function createCounterDrive() {
+  return createJsonDrive(countersFilePath(), COUNTER_DRIVE_MESSAGES);
+}
+
+export function sharedWheelPresetsPath() {
+  return activeWheelPresetsPath();
+}
+
+export function createWheelPresetDrive() {
+  return createJsonDrive(activeWheelPresetsPath(), {
+    notConfigured: "Microsoft sign-in is not configured, so wheel prices stay on this device.",
+    authFailed: "Sign in with Microsoft to share wheel prices. Until then, they stay on this device.",
+    readFailed: "Could not read saved wheel prices on OneDrive. This device is still using its own copy.",
+    invalid: "The wheel price file on OneDrive could not be read. This device is still using its own copy.",
+    folderFailed: "Could not open the Disposal Solutions folder on OneDrive. Wheel prices stay on this device.",
+    writeFailed: "Could not save wheel prices on OneDrive. They are still saved on this device.",
+  });
 }
