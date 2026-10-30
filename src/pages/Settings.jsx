@@ -269,6 +269,9 @@ export default function Settings() {
           <>
             <p><strong>OneDrive auto-save active</strong></p>
             <p>
+              If a save sits there or says Microsoft sign-in expired, use Sign in again at the top of the page. These folders are already set. Nothing is moved out of older Wrights L.C. folders.
+            </p>
+            <p>
               Invoices path:{" "}
               {oneDriveInvoicesPath}
             </p>

@@ -1,6 +1,13 @@
 import { PublicClientApplication } from "@azure/msal-browser";
 import { activeCountersPath, activeOneDriveFolder, activeWheelPresetsPath, parentDriveFolder } from "./oneDrivePaths.js";
 import { encodeGraphPath, ensureDriveFolder } from "./ensureDriveFolder.js";
+import { isAuthReturnUrl } from "./pwaPolicy.js";
+import {
+  MSAL_INTERACTION_KEY,
+  driveFailureMessage,
+  isStaleInteractionRecord,
+  withTimeout,
+} from "./driveStatus.js";
 import { activeMailFrom, classifyMailAuthError, interpretMailLogin, normalizeEmail, pickAccounts } from "./mailAccounts.js";
 import { markFileSent, plainMailError, writeMailNotice } from "./mailNotice.js";
 import { clearPendingMailAll, keepPendingSend, readPendingMailFirst } from "./pendingMail.js";
@@ -31,6 +38,9 @@ const graphEndpoint = "https://graph.microsoft.com/v1.0";
 const PENDING_UPLOAD_KEY = "wrights_pending_onedrive_upload";
 const SAVE_NOTICE_KEY = "wrights_save_notice";
 const MAIL_CONSENT_ATTEMPT_KEY = "wrights_mail_consent_attempt";
+const SIGN_IN_RETURN_KEY = "wrights_signin_return";
+const SILENT_TOKEN_MS = 12000;
+const GRAPH_FETCH_MS = 20000;
 
 let msalApp = null;
 let msalMailApp = null;
@@ -97,14 +107,13 @@ function getMsalApp() {
       },
       cache: {
         cacheLocation: "localStorage",
-        temporaryCacheLocation: "localStorage",
       },
       system: {
-        // Avoid false "timed_out" in slower popup/embedded-browser auth flows.
-        windowHashTimeout: 120000,
-        iframeHashTimeout: 15000,
-        loadFrameTimeout: 120000,
-        asyncPopups: true,
+        // MSAL 5 does not read windowHashTimeout, iframeHashTimeout, or
+        // loadFrameTimeout. Those old keys left silent sign-in able to sit
+        // on a hidden request with no limit this app could enforce.
+        iframeBridgeTimeout: 8000,
+        redirectNavigationTimeout: 15000,
       },
     });
   }
@@ -186,24 +195,145 @@ export async function getSignedInEmail() {
   return String(account.username || "").trim();
 }
 
-export async function getIdToken() {
+function recoverableAuthReason(err) {
+  if (!err) return "";
+  if (err.name === "DriveTimeout" || err.code === "timeout") return "timeout";
+  const code = String(err.errorCode || err.code || "").toLowerCase();
+  const msg = String(err.message || "").toLowerCase();
+  if (
+    code.includes("interaction_in_progress") ||
+    msg.includes("interaction_in_progress") ||
+    code.includes("timed_out") ||
+    msg.includes("timed_out") ||
+    needsInteraction(err)
+  ) {
+    return "auth-failed";
+  }
+  return "";
+}
+
+function clearStaleInteraction() {
+  if (typeof window !== "undefined" && isAuthReturnUrl(window.location.href)) return;
+  for (const store of browserStorages()) {
+    try {
+      const raw = store.getItem(MSAL_INTERACTION_KEY);
+      if (isStaleInteractionRecord(raw)) store.removeItem(MSAL_INTERACTION_KEY);
+    } catch {
+      // Storage can be blocked in private mode.
+    }
+  }
+}
+
+async function silentToken(scopes) {
   const app = getMsalApp();
-  if (!app) return "";
+  if (!app) return { token: "", reason: "not-configured" };
+  await initializeOneDriveAuth();
+  if (lastRedirectError) {
+    lastRedirectError = "";
+    return { token: "", reason: "auth-failed" };
+  }
+  const account = useDriveAccount(app);
+  if (!account) return { token: "", reason: "auth-failed" };
   try {
-    await initializeOneDriveAuth();
-    const account = useDriveAccount(app);
-    if (!account) return "";
-    const silent = await app.acquireTokenSilent({ account, scopes: [basicScope] });
-    return silent?.idToken || "";
+    const silent = await withTimeout(
+      app.acquireTokenSilent({ account, scopes }),
+      SILENT_TOKEN_MS,
+      "Microsoft did not answer in time."
+    );
+    if (!silent?.accessToken) return { token: "", idToken: "", reason: "auth-failed" };
+    return { token: silent.accessToken, idToken: silent.idToken || "", reason: "" };
+  } catch (err) {
+    const reason = recoverableAuthReason(err);
+    if (reason) return { token: "", reason };
+    throw err;
+  }
+}
+
+export async function getIdToken() {
+  try {
+    const auth = await silentToken([basicScope]);
+    return auth.idToken || "";
   } catch {
     return "";
   }
+}
+
+function markSignInReturn() {
+  try {
+    sessionStorage.setItem(SIGN_IN_RETURN_KEY, "1");
+  } catch {
+    // The invoice draft is also stored, but the return flag is what restores it.
+  }
+}
+
+export function signInReturnPending() {
+  try {
+    return sessionStorage.getItem(SIGN_IN_RETURN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function consumeSignInReturn() {
+  try {
+    const pending = signInReturnPending();
+    if (pending) sessionStorage.removeItem(SIGN_IN_RETURN_KEY);
+    return pending;
+  } catch {
+    return false;
+  }
+}
+
+export async function signInToOneDrive() {
+  const app = getMsalApp();
+  if (!app) {
+    return { ok: false, reason: "not-configured", message: driveFailureMessage("not-configured") };
+  }
+  await initializeOneDriveAuth();
+  clearStaleInteraction();
+  const allow = allowedEmailList();
+  const request = {
+    scopes: driveScopes,
+    prompt: "select_account",
+    loginHint: allow.length === 1 ? allow[0] : undefined,
+    redirectUri,
+    overrideInteractionInProgress: true,
+  };
+  if (!devicePrefersMailRedirect()) {
+    try {
+      const result = await app.loginPopup(request);
+      const account = result?.account;
+      if (account) app.setActiveAccount(account);
+      return { ok: true, email: String(account?.username || "").trim() };
+    } catch (err) {
+      const kind = classifyMailAuthError(err);
+      if (kind === "cancel") return { ok: false, reason: "user-cancelled" };
+      if (kind !== "popup-blocked" && kind !== "timeout") {
+        clearStaleInteraction();
+        const technical = String(err?.message || "");
+        return {
+          ok: false,
+          reason: "auth-failed",
+          message: /interaction_in_progress/i.test(technical)
+            ? driveFailureMessage("auth-failed")
+            : (technical || driveFailureMessage("auth-failed")),
+        };
+      }
+    }
+  }
+  markSignInReturn();
+  await app.loginRedirect({
+    ...request,
+    redirectStartPage: window.location.href,
+  });
+  return { ok: false, reason: "redirecting" };
 }
 
 export async function beginSignInRedirect() {
   const app = getMsalApp();
   if (!app) return { ok: false, reason: "not-configured" };
   await initializeOneDriveAuth();
+  clearStaleInteraction();
   const allow = allowedEmailList();
   await app.loginRedirect({
     scopes: driveScopes,
@@ -226,76 +356,54 @@ export async function signOutRedirect() {
   });
 }
 
+let lastTokenReason = "auth-failed";
+
 async function getFilesTokenSilent() {
-  const app = getMsalApp();
-  if (!app) return null;
   try {
-    await initializeOneDriveAuth();
-    const account = useDriveAccount(app);
-    if (!account) return null;
-    const silent = await app.acquireTokenSilent({ account, scopes: [fileScope] });
-    return silent?.accessToken || null;
-  } catch {
-    return null;
+    const auth = await silentToken([fileScope]);
+    lastTokenReason = auth.token ? "" : (auth.reason || "auth-failed");
+    return auth.token || null;
+  } catch (err) {
+    const reason = recoverableAuthReason(err);
+    if (reason) {
+      lastTokenReason = reason;
+      return null;
+    }
+    throw err;
   }
 }
 
 async function getAccessToken(scopes = [fileScope]) {
-  const app = getMsalApp();
-  if (!app) return null;
+  const auth = await silentToken(scopes);
+  lastTokenReason = auth.token ? "" : (auth.reason || "auth-failed");
+  return auth.token || null;
+}
 
-  await initializeOneDriveAuth();
-  if (lastRedirectError) {
-    const message = lastRedirectError;
-    lastRedirectError = "";
-    throw new Error(message);
-  }
+function missingTokenResult() {
+  return { ok: false, reason: lastTokenReason || "auth-failed" };
+}
 
-  const account = useDriveAccount(app);
-
-  if (account) {
-    try {
-      const silent = await app.acquireTokenSilent({ account, scopes });
-      return silent?.accessToken || null;
-    } catch (err) {
-      const code = String(err?.errorCode || "").toLowerCase();
-      const msg = String(err?.message || "").toLowerCase();
-      const interactionRequired =
-        code.includes("interaction_required") ||
-        code.includes("consent_required") ||
-        code.includes("invalid_grant") ||
-        code.includes("login_required") ||
-        msg.includes("interaction_required") ||
-        msg.includes("consent_required") ||
-        msg.includes("invalid_grant") ||
-        msg.includes("login_required");
-
-      if (!interactionRequired) {
-        throw err;
-      }
-      const now = Date.now();
-      if (now - lastInteractiveAttemptAt < 30000) {
-        throw new Error("Authentication still pending. Please try again in a few seconds.");
-      }
-      lastInteractiveAttemptAt = now;
-      await app.acquireTokenRedirect({
-        scopes,
-        account,
-        redirectUri,
-        redirectStartPage: window.location.href,
-      });
-      return null;
+async function graphFetch(url, options = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), GRAPH_FETCH_MS);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (err) {
+    if (err?.name === "AbortError") {
+      const timeout = new Error("OneDrive did not answer in time. Check your connection and try again.");
+      timeout.name = "DriveTimeout";
+      timeout.code = "timeout";
+      throw timeout;
     }
+    throw err;
+  } finally {
+    clearTimeout(timer);
   }
+}
 
-  lastInteractiveAttemptAt = Date.now();
-  await app.acquireTokenRedirect({
-    scopes,
-    account: account || undefined,
-    redirectUri,
-    redirectStartPage: window.location.href,
-  });
-  return null;
+function graphFailure(err, fallback) {
+  if (err?.code === "timeout" || err?.name === "DriveTimeout") return { ok: false, reason: "timeout" };
+  return { ok: false, reason: fallback };
 }
 
 function resolveTargetPath(kind = "invoice") {
@@ -376,27 +484,40 @@ export async function uploadBlobToOneDrive(fileName, blob, kind = "invoice") {
   }
 
   const token = await getAccessToken([fileScope]);
-  if (!token) return { ok: false, reason: "auth-failed" };
+  if (!token) return missingTokenResult();
 
   const url = buildUploadUrl(fileName, kind);
   if (!url) return { ok: false, reason: "invalid-path" };
 
-  const folderReady = await ensureDriveFolder(fetch, {
-    graphEndpoint,
-    token,
-    folderPath: resolveTargetPath(kind),
-  });
+  let folderReady;
+  try {
+    folderReady = await ensureDriveFolder(graphFetch, {
+      graphEndpoint,
+      token,
+      folderPath: resolveTargetPath(kind),
+    });
+  } catch (err) {
+    return graphFailure(err, "folder-check-failed");
+  }
   if (!folderReady.ok) return folderReady;
 
-  const res = await fetch(url, {
-    method: "PUT",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/octet-stream",
-    },
-    body: blob,
-  });
+  let res;
+  try {
+    res = await graphFetch(url, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/octet-stream",
+      },
+      body: blob,
+    });
+  } catch (err) {
+    return graphFailure(err, "upload-failed");
+  }
 
+  if (res.status === 401 || res.status === 403) {
+    return { ok: false, reason: "auth-failed", status: res.status };
+  }
   if (!res.ok) {
     return { ok: false, reason: "upload-failed", status: res.status };
   }
@@ -419,12 +540,18 @@ export async function uploadBlobToOneDrive(fileName, blob, kind = "invoice") {
 export async function listOneDriveFiles(kind = "invoice", startsWith = "") {
   if (!isOneDriveGraphConfigured(kind)) return { ok: false, reason: "not-configured" };
   const token = await getAccessToken([fileScope]);
-  if (!token) return { ok: false, reason: "auth-failed" };
+  if (!token) return missingTokenResult();
   const folder = resolveTargetPath(kind);
   if (!folder) return { ok: false, reason: "invalid-path" };
   const encodedPath = encodeGraphPath(folder);
   const url = `${graphEndpoint}/me/drive/root:/${encodedPath}:/children?$top=200`;
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  let res;
+  try {
+    res = await graphFetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  } catch (err) {
+    return graphFailure(err, "list-failed");
+  }
+  if (res.status === 401 || res.status === 403) return { ok: false, reason: "auth-failed", status: res.status };
   if (!res.ok) return { ok: false, reason: "list-failed", status: res.status };
   const payload = await res.json().catch(() => ({}));
   const values = Array.isArray(payload?.value) ? payload.value : [];
@@ -445,13 +572,19 @@ export async function listOneDriveFiles(kind = "invoice", startsWith = "") {
 export async function downloadOneDriveFile(kind = "invoice", fileName = "") {
   if (!isOneDriveGraphConfigured(kind)) return { ok: false, reason: "not-configured" };
   const token = await getAccessToken([fileScope]);
-  if (!token) return { ok: false, reason: "auth-failed" };
+  if (!token) return missingTokenResult();
   const folder = resolveTargetPath(kind);
   if (!folder) return { ok: false, reason: "invalid-path" };
   const encodedPath = encodeGraphPath(folder);
   const encodedName = encodeURIComponent(fileName);
   const url = `${graphEndpoint}/me/drive/root:/${encodedPath}/${encodedName}:/content`;
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  let res;
+  try {
+    res = await graphFetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  } catch (err) {
+    return graphFailure(err, "download-failed");
+  }
+  if (res.status === 401 || res.status === 403) return { ok: false, reason: "auth-failed", status: res.status };
   if (!res.ok) return { ok: false, reason: "download-failed", status: res.status };
   const blob = await res.blob();
   return { ok: true, blob };
@@ -460,11 +593,17 @@ export async function downloadOneDriveFile(kind = "invoice", fileName = "") {
 export async function downloadOneDriveFileById(kind = "invoice", itemId = "") {
   if (!isOneDriveGraphConfigured(kind)) return { ok: false, reason: "not-configured" };
   const token = await getAccessToken([fileScope]);
-  if (!token) return { ok: false, reason: "auth-failed" };
+  if (!token) return missingTokenResult();
   if (!itemId) return { ok: false, reason: "invalid-path" };
 
   const url = `${graphEndpoint}/me/drive/items/${encodeURIComponent(itemId)}/content`;
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  let res;
+  try {
+    res = await graphFetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  } catch (err) {
+    return graphFailure(err, "download-failed");
+  }
+  if (res.status === 401 || res.status === 403) return { ok: false, reason: "auth-failed", status: res.status };
   if (!res.ok) return { ok: false, reason: "download-failed", status: res.status };
   const blob = await res.blob();
   return { ok: true, blob };
@@ -473,13 +612,19 @@ export async function downloadOneDriveFileById(kind = "invoice", itemId = "") {
 export async function deleteOneDriveFile(kind = "invoice", fileName = "") {
   if (!isOneDriveGraphConfigured(kind)) return { ok: false, reason: "not-configured" };
   const token = await getAccessToken([fileScope]);
-  if (!token) return { ok: false, reason: "auth-failed" };
+  if (!token) return missingTokenResult();
   const folder = resolveTargetPath(kind);
   if (!folder) return { ok: false, reason: "invalid-path" };
   const encodedPath = encodeGraphPath(folder);
   const encodedName = encodeURIComponent(fileName);
   const url = `${graphEndpoint}/me/drive/root:/${encodedPath}/${encodedName}`;
-  const res = await fetch(url, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+  let res;
+  try {
+    res = await graphFetch(url, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+  } catch (err) {
+    return graphFailure(err, "delete-failed");
+  }
+  if (res.status === 401 || res.status === 403) return { ok: false, reason: "auth-failed", status: res.status };
   if (!res.ok && res.status !== 204) return { ok: false, reason: "delete-failed", status: res.status };
   return { ok: true };
 }
@@ -487,11 +632,17 @@ export async function deleteOneDriveFile(kind = "invoice", fileName = "") {
 export async function deleteOneDriveFileById(kind = "invoice", itemId = "") {
   if (!isOneDriveGraphConfigured(kind)) return { ok: false, reason: "not-configured" };
   const token = await getAccessToken([fileScope]);
-  if (!token) return { ok: false, reason: "auth-failed" };
+  if (!token) return missingTokenResult();
   if (!itemId) return { ok: false, reason: "invalid-path" };
 
   const url = `${graphEndpoint}/me/drive/items/${encodeURIComponent(itemId)}`;
-  const res = await fetch(url, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+  let res;
+  try {
+    res = await graphFetch(url, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+  } catch (err) {
+    return graphFailure(err, "delete-failed");
+  }
+  if (res.status === 401 || res.status === 403) return { ok: false, reason: "auth-failed", status: res.status };
   if (!res.ok && res.status !== 204) return { ok: false, reason: "delete-failed", status: res.status };
   return { ok: true };
 }
@@ -977,6 +1128,13 @@ function createJsonDrive(filePath, messages) {
   const encoded = encodeGraphPath(filePath);
   const itemUrl = `${graphEndpoint}/me/drive/root:/${encoded}`;
 
+  function authError() {
+    const code = lastTokenReason === "timeout" ? "timeout" : "auth-failed";
+    const err = new Error(code === "timeout" ? messages.timeout : messages.authFailed);
+    err.code = code;
+    return err;
+  }
+
   return {
     async read() {
       if (!clientId) {
@@ -985,21 +1143,41 @@ function createJsonDrive(filePath, messages) {
         throw err;
       }
       const token = await getFilesTokenSilent();
-      if (!token) {
+      if (!token) throw authError();
+      let metaRes;
+      try {
+        metaRes = await graphFetch(itemUrl, { headers: { Authorization: `Bearer ${token}` } });
+      } catch (err) {
+        const error = new Error(err?.code === "timeout" ? messages.timeout : messages.readFailed);
+        error.code = err?.code === "timeout" ? "timeout" : "read-failed";
+        throw error;
+      }
+      if (metaRes.status === 404) return { found: false };
+      if (metaRes.status === 401 || metaRes.status === 403) {
         const err = new Error(messages.authFailed);
         err.code = "auth-failed";
         throw err;
       }
-      const metaRes = await fetch(itemUrl, { headers: { Authorization: `Bearer ${token}` } });
-      if (metaRes.status === 404) return { found: false };
       if (!metaRes.ok) {
         const err = new Error(messages.readFailed);
         err.code = "read-failed";
         throw err;
       }
       const meta = await metaRes.json().catch(() => ({}));
-      const contentRes = await fetch(`${itemUrl}:/content`, { headers: { Authorization: `Bearer ${token}` } });
+      let contentRes;
+      try {
+        contentRes = await graphFetch(`${itemUrl}:/content`, { headers: { Authorization: `Bearer ${token}` } });
+      } catch (err) {
+        const error = new Error(err?.code === "timeout" ? messages.timeout : messages.readFailed);
+        error.code = err?.code === "timeout" ? "timeout" : "read-failed";
+        throw error;
+      }
       if (contentRes.status === 404) return { found: false };
+      if (contentRes.status === 401 || contentRes.status === 403) {
+        const err = new Error(messages.authFailed);
+        err.code = "auth-failed";
+        throw err;
+      }
       if (!contentRes.ok) {
         const err = new Error(messages.readFailed);
         err.code = "read-failed";
@@ -1016,33 +1194,48 @@ function createJsonDrive(filePath, messages) {
 
     async write({ etag, create, value }) {
       const token = await getFilesTokenSilent();
-      if (!token) {
-        const err = new Error(messages.authFailed);
-        err.code = "auth-failed";
-        throw err;
-      }
+      if (!token) throw authError();
       const headers = {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
       };
       if (create) headers["If-None-Match"] = "*";
       else if (etag) headers["If-Match"] = etag;
-      const folderReady = await ensureDriveFolder(fetch, {
-        graphEndpoint,
-        token,
-        folderPath: parentDriveFolder(filePath),
-      });
+      let folderReady;
+      try {
+        folderReady = await ensureDriveFolder(graphFetch, {
+          graphEndpoint,
+          token,
+          folderPath: parentDriveFolder(filePath),
+        });
+      } catch (err) {
+        const error = new Error(err?.code === "timeout" ? messages.timeout : messages.folderFailed);
+        error.code = err?.code === "timeout" ? "timeout" : "folder-create-failed";
+        throw error;
+      }
       if (!folderReady.ok) {
         const err = new Error(messages.folderFailed);
         err.code = "folder-create-failed";
         throw err;
       }
-      const res = await fetch(`${itemUrl}:/content`, {
-        method: "PUT",
-        headers,
-        body: JSON.stringify(value),
-      });
+      let res;
+      try {
+        res = await graphFetch(`${itemUrl}:/content`, {
+          method: "PUT",
+          headers,
+          body: JSON.stringify(value),
+        });
+      } catch (err) {
+        const error = new Error(err?.code === "timeout" ? messages.timeout : messages.writeFailed);
+        error.code = err?.code === "timeout" ? "timeout" : "write-failed";
+        throw error;
+      }
       if (res.status === 409 || res.status === 412) return { ok: false, conflict: true };
+      if (res.status === 401 || res.status === 403) {
+        const err = new Error(messages.authFailed);
+        err.code = "auth-failed";
+        throw err;
+      }
       if (!res.ok) {
         const err = new Error(messages.writeFailed);
         err.code = "write-failed";
@@ -1055,10 +1248,11 @@ function createJsonDrive(filePath, messages) {
 
 const COUNTER_DRIVE_MESSAGES = {
   notConfigured: "Microsoft sign-in is not configured, so numbers stay on this device.",
-  authFailed: "Sign in with Microsoft to share invoice and estimate numbers. Until then, these are the last numbers on this device.",
-  readFailed: "Could not read the shared number counter on OneDrive. Check your connection and try again.",
+  authFailed: "Microsoft sign-in expired or is missing. These are the last numbers on this device, and a new invoice number is not issued until you click Sign in again at the top of the page.",
+  timeout: "Microsoft did not answer in time. These are the last numbers on this device, and a new invoice number was not issued. Check your connection, or click Sign in again.",
+  readFailed: "Could not read the shared number counter on OneDrive. Check your connection and try again. No new number was issued.",
   invalid: "The shared counter file on OneDrive could not be read. No new number was issued.",
-  folderFailed: "Could not create the Disposal Solutions folder on OneDrive. No new number was issued.",
+  folderFailed: "Could not open the Disposal Solutions folder on OneDrive. No new number was issued. Nothing was moved.",
   writeFailed: "Could not save the shared number counter on OneDrive. No new number was issued.",
 };
 
@@ -1073,10 +1267,11 @@ export function sharedWheelPresetsPath() {
 export function createWheelPresetDrive() {
   return createJsonDrive(activeWheelPresetsPath(), {
     notConfigured: "Microsoft sign-in is not configured, so wheel prices stay on this device.",
-    authFailed: "Sign in with Microsoft to share wheel prices. Until then, they stay on this device.",
-    readFailed: "Could not read saved wheel prices on OneDrive. This device is still using its own copy.",
-    invalid: "The wheel price file on OneDrive could not be read. This device is still using its own copy.",
-    folderFailed: "Could not open the Disposal Solutions folder on OneDrive. Wheel prices stay on this device.",
-    writeFailed: "Could not save wheel prices on OneDrive. They are still saved on this device.",
+    authFailed: "Microsoft sign-in expired or is missing, so wheel prices stored on OneDrive could not be opened. Click Sign in again at the top of the page. Prices already saved in this browser are listed below.",
+    timeout: "Microsoft did not answer in time, so wheel prices stored on OneDrive could not be opened. Prices already saved in this browser are listed below.",
+    readFailed: "Could not read saved wheel prices on OneDrive. This browser is still using its own copy.",
+    invalid: "The wheel price file on OneDrive could not be read. This browser is still using its own copy.",
+    folderFailed: "Could not open the Disposal Solutions folder on OneDrive. Wheel prices stay on this browser. Nothing was moved.",
+    writeFailed: "Could not save wheel prices on OneDrive. They are still saved on this browser.",
   });
 }

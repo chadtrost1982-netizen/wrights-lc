@@ -10,6 +10,7 @@ import {
 } from "../utils/autoSaveFolder";
 import {
   clearPendingOneDriveUpload,
+  consumeSignInReturn,
   isOneDriveGraphConfigured,
   listOneDriveFiles,
   queuePendingOneDriveUpload,
@@ -17,10 +18,12 @@ import {
   downloadOneDriveFileById,
   ensureBusinessMailbox,
   sendGraphEmailWithAttachment,
+  signInReturnPending,
   uploadBlobToOneDrive,
 } from "../utils/oneDriveGraph";
 import { allocateDocumentNumber } from "../utils/documentCounters";
 import { activeOneDriveFolder } from "../utils/oneDrivePaths";
+import { driveFailureMessage, exportResultMessage, invoiceFolderView } from "../utils/driveStatus";
 import { visibleCustomers, visibleWorks } from "../utils/wheelPresetCore";
 import { loadSharedWheelBook, rememberWheelLines } from "../utils/wheelPresetDrive";
 import { activeMailFrom } from "../utils/mailAccounts";
@@ -36,6 +39,37 @@ const CUSTOMER_CONTACTS_KEY_WHEEL = "wrights_customer_contacts";
 const CUSTOMER_CONTACTS_KEY_SERVICE = "wrights_service_customer_contacts";
 const FILE_SENT_LOG_KEY = "wrights_file_sent_log";
 const INVOICE_DRAFT_FROM_ESTIMATE_KEY = "wrights_invoice_draft_from_estimate";
+const EDITOR_DRAFT_KEY = "wrights_invoice_editor_draft";
+
+function readEditorDraft() {
+  try {
+    const raw = sessionStorage.getItem(EDITOR_DRAFT_KEY);
+    if (!raw) return null;
+    const draft = JSON.parse(raw);
+    if (!draft || typeof draft !== "object") return null;
+    if (Date.now() - Number(draft.savedAt || 0) > 12 * 60 * 60 * 1000) return null;
+    if (!Array.isArray(draft.wheelLines) || draft.wheelLines.length === 0) return null;
+    return draft;
+  } catch {
+    return null;
+  }
+}
+
+function writeEditorDraft(draft) {
+  try {
+    sessionStorage.setItem(EDITOR_DRAFT_KEY, JSON.stringify({ ...draft, savedAt: Date.now() }));
+  } catch {
+    // A full browser store should not block the invoice.
+  }
+}
+
+function clearEditorDraft() {
+  try {
+    sessionStorage.removeItem(EDITOR_DRAFT_KEY);
+  } catch {
+    // Ignore storage failures.
+  }
+}
 const DISPOSAL_POLICY_TEXT = [
   "Overweight Charges",
   "If the load exceeds the included 1,000 kg:",
@@ -450,7 +484,11 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
   const wheelLinesRef = useRef(wheelLines);
   const [refEstNumber, setRefEstNumber] = useState("");
   const [folderFiles, setFolderFiles] = useState([]);
-  const [folderName, setFolderName] = useState("");
+  const [folderName, setFolderName] = useState(graphMode ? `OneDrive: ${oneDriveInvoicesPath}` : "");
+  const [folderDetail, setFolderDetail] = useState(graphMode ? "Checking OneDrive…" : "");
+  const [exportNote, setExportNote] = useState("");
+  const [exporting, setExporting] = useState(false);
+  const exportingRef = useRef(false);
   const [customerOptions, setCustomerOptions] = useState([]);
   const [workPresets, setWorkPresets] = useState([]); // [{work, rate}]
   const [emailFile, setEmailFile] = useState(null);
@@ -508,12 +546,23 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
 
   const loadFolderContents = async () => {
     if (graphMode) {
-      const listed = await listOneDriveFiles("invoice", "");
-      if (listed.ok) {
-        setFolderFiles(listed.files || []);
-        setFolderName(`OneDrive: ${oneDriveInvoicesPath}`);
-        return;
+      setFolderName(`OneDrive: ${oneDriveInvoicesPath}`);
+      setFolderDetail("Checking OneDrive…");
+      let listed;
+      try {
+        listed = await listOneDriveFiles("invoice", "");
+      } catch (err) {
+        listed = { ok: false, reason: err?.code || "list-failed" };
       }
+      const view = invoiceFolderView({
+        graphMode: true,
+        configuredPath: oneDriveInvoicesPath,
+        listed,
+      });
+      setFolderName(view.folderLabel);
+      setFolderDetail(view.detail);
+      setFolderFiles(view.files || []);
+      return;
     }
 
     let handle = await loadAutoSaveDirectoryHandle();
@@ -534,8 +583,10 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
     if (!handle) {
       setFolderFiles([]);
       setFolderName("");
+      setFolderDetail("Auto-save folder not configured.");
       return;
     }
+    setFolderDetail("");
 
     setFolderName(handle.name || "");
     const files = [];
@@ -560,6 +611,8 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
       if (!active || !result?.book) return;
       setCustomerOptions(visibleCustomers(result.book));
       setWorkPresets(visibleWorks(result.book));
+    }).catch(() => {
+      // Prices already typed on this invoice stay. Settings explains the OneDrive failure.
     });
     return () => {
       active = false;
@@ -605,6 +658,60 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
       localStorage.removeItem(INVOICE_DRAFT_FROM_ESTIMATE_KEY);
     }
   }, [showCreate]);
+
+  useEffect(() => {
+    if (!showCreate || !signInReturnPending()) return undefined;
+    const draft = readEditorDraft();
+    if (draft) {
+      setInvoiceType(draft.invoiceType === "services" ? "services" : "wheel");
+      setWheelLines(draft.wheelLines.map((line) => ({
+        customer: String(line?.customer || ""),
+        work: String(line?.work || ""),
+        qty: String(line?.qty ?? ""),
+        rate: String(line?.rate ?? ""),
+      })));
+      setRefEstNumber(String(draft.refEstNumber || ""));
+      setBillToName(String(draft.billToName || ""));
+      setBillToAddress(String(draft.billToAddress || ""));
+      setInvoiceNotes(String(draft.invoiceNotes || ""));
+      setDraftForLabel(String(draft.draftForLabel || ""));
+      setDraftCustomerEmail(String(draft.draftCustomerEmail || ""));
+      setExportNote("Brought back the invoice that was on this page before Microsoft sign-in.");
+    }
+    const timer = setTimeout(() => consumeSignInReturn(), 1000);
+    return () => clearTimeout(timer);
+  }, [showCreate]);
+
+  useEffect(() => {
+    if (!showCreate) return;
+    const hasContent = wheelLines.some((line) => (
+      String(line.customer || "").trim()
+      || String(line.work || "").trim()
+      || String(line.qty || "").trim()
+      || String(line.rate || "").trim()
+    ));
+    if (!hasContent && !String(billToName || "").trim() && !String(invoiceNotes || "").trim()) return;
+    writeEditorDraft({
+      invoiceType,
+      wheelLines,
+      refEstNumber,
+      billToName,
+      billToAddress,
+      invoiceNotes,
+      draftForLabel,
+      draftCustomerEmail,
+    });
+  }, [
+    showCreate,
+    invoiceType,
+    wheelLines,
+    refEstNumber,
+    billToName,
+    billToAddress,
+    invoiceNotes,
+    draftForLabel,
+    draftCustomerEmail,
+  ]);
 
   const learnWheelValues = (lines) => {
     const customers = new Set(customerOptions);
@@ -857,16 +964,29 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
   };
 
   const exportPdf = async () => {
+    if (exportingRef.current) return;
+    exportingRef.current = true;
+    setExporting(true);
+    setExportNote("Saving invoice…");
     try {
       const saveRows = getRowsForSave();
-      if (!saveRows.length) return;
+      if (!saveRows.length) {
+        const message = "Add at least one line before exporting.";
+        setExportNote(message);
+        alert(message);
+        return;
+      }
 
       if (invoiceType === "wheel") {
-        const saved = await rememberWheelLines(wheelLines);
-        if (saved?.book) {
+        // Prices are saved alongside the invoice. Waiting for them used to
+        // freeze Export PDF when Microsoft sign-in never answered.
+        rememberWheelLines(wheelLines).then((saved) => {
+          if (!saved?.book) return;
           setCustomerOptions(visibleCustomers(saved.book));
           setWorkPresets(visibleWorks(saved.book));
-        }
+        }).catch(() => {
+          // The invoice number and file do not depend on this.
+        });
       } else if (isWheelStyle) {
         learnWheelValues(wheelLines);
       }
@@ -1065,39 +1185,39 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
       setTimeout(() => URL.revokeObjectURL(pdfDownloadUrl), 20000);
 
       const saveResults = await Promise.allSettled([
-        uploadBlobToOneDrive(pdfName, pdfBlob, "invoice").then(async (result) => {
-          if (result.ok) return result;
-          return writeBlobToAutoSaveFolder(pdfName, pdfBlob);
-        }),
-        uploadBlobToOneDrive(excelName, excelBlob, "invoice").then(async (result) => {
-          if (result.ok) return result;
-          return writeBlobToAutoSaveFolder(excelName, excelBlob);
-        }),
+        uploadBlobToOneDrive(pdfName, pdfBlob, "invoice"),
+        uploadBlobToOneDrive(excelName, excelBlob, "invoice"),
       ]);
-
-      const pdfResult = saveResults[0].status === "fulfilled" ? saveResults[0].value : { ok: false };
-      const excelResult = saveResults[1].status === "fulfilled" ? saveResults[1].value : { ok: false };
+      const pdfResult = saveResults[0].status === "fulfilled"
+        ? saveResults[0].value
+        : { ok: false, reason: "upload-failed" };
+      const excelResult = saveResults[1].status === "fulfilled"
+        ? saveResults[1].value
+        : { ok: false, reason: "upload-failed" };
+      if (!pdfResult.ok) await writeBlobToAutoSaveFolder(pdfName, pdfBlob);
+      if (!excelResult.ok) await writeBlobToAutoSaveFolder(excelName, excelBlob);
 
       if (!previewWindow) {
         // Popup blockers can prevent previewing, but the download click above still runs.
       }
 
-      const pdfStatus = pdfResult?.ok
-        ? (pdfResult.parentPath
-          ? `PDF saved: ${pdfResult.parentPath.replace("/drive/root:", "")}/${pdfResult.name}`
-          : `PDF saved: ${pdfName}`)
-        : `PDF downloaded: ${pdfName}`;
-      const excelStatus = excelResult?.ok
-        ? (excelResult.parentPath
-          ? `Excel saved: ${excelResult.parentPath.replace("/drive/root:", "")}/${excelResult.name}`
-          : `Excel saved: ${excelName}`)
-        : `Excel downloaded: ${excelName}`;
-
-      alert(`${pdfStatus}\n${excelStatus}`);
+      if (pdfResult.ok || excelResult.ok) clearEditorDraft();
+      const message = exportResultMessage({ pdfResult, excelResult, pdfName, excelName });
+      setExportNote(message);
+      alert(message);
 
       await loadFolderContents();
     } catch (error) {
-      alert(`Could not export PDF. ${error?.message || String(error || "Unknown error")}`);
+      const message = error?.message
+        ? (error.code === "auth-failed" || error.code === "timeout"
+          ? error.message
+          : `Could not export PDF. ${error.message}`)
+        : "Could not export PDF.";
+      setExportNote(message);
+      alert(message);
+    } finally {
+      exportingRef.current = false;
+      setExporting(false);
     }
   };
 
@@ -1113,7 +1233,7 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
         if (result.ok) {
           arrayBuffer = await result.blob.arrayBuffer();
         } else {
-          alert("Could not download file from OneDrive: " + (result.reason || "Unknown error"));
+          alert(driveFailureMessage(result.reason, result.status));
           return;
         }
       } else {
@@ -1178,7 +1298,7 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
           window.open(url, "_blank", "noopener,noreferrer");
           setTimeout(() => URL.revokeObjectURL(url), 15000);
         } else {
-          alert("Could not download file from OneDrive: " + (result.reason || "Unknown error"));
+          alert(driveFailureMessage(result.reason, result.status));
         }
       } else {
         // Fall back to local folder
@@ -1364,6 +1484,8 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
       if (!result?.book) return;
       setCustomerOptions(visibleCustomers(result.book));
       setWorkPresets(visibleWorks(result.book));
+    }).catch(() => {
+      // Typing stays on this page even if OneDrive cannot store the price yet.
     });
   };
 
@@ -1427,10 +1549,9 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
       <div className="settings-card win-panel">
         <h3>Existing Folder Contents</h3>
         <p>
-          {folderName
-            ? `Folder: ${folderName}`
-            : (graphMode ? "OneDrive invoice path not configured." : "Auto-save folder not configured.")}
+          {folderName ? `Folder: ${folderName}` : (folderDetail || "Auto-save folder not configured.")}
         </p>
+        {folderName && folderDetail ? <p>{folderDetail}</p> : null}
         <button className="btn-secondary win-btn-secondary" onClick={loadFolderContents}>
           Refresh Folder List
         </button>
@@ -1594,12 +1715,15 @@ export default function InvoiceTools({ pageTitle = "Invoice Tools", showFolder =
         />
 
         <button
+          type="button"
           className="btn-secondary win-btn-secondary"
           onClick={exportPdf}
+          disabled={exporting}
           style={{ marginTop: "10px" }}
         >
-          Export PDF
+          {exporting ? "Saving invoice…" : "Export PDF"}
         </button>
+        {exportNote ? <p role="status" style={{ whiteSpace: "pre-wrap" }}>{exportNote}</p> : null}
       </div>
       )}
 

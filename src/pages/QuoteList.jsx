@@ -12,6 +12,7 @@ import {
   sendGraphEmailWithAttachment,
 } from "../utils/oneDriveGraph";
 import { activeOneDriveFolder } from "../utils/oneDrivePaths";
+import { invoiceFolderView } from "../utils/driveStatus";
 import { activeMailFrom } from "../utils/mailAccounts";
 import { buildEstimatePdfFromExcelFile } from "../utils/estimatePdf";
 import { defaultMailBody, mailAttachmentName, mailSubject } from "../utils/mailMessage";
@@ -100,8 +101,11 @@ function estimateAttachmentName(fileName) {
 
 export default function QuoteList() {
   const navigate = useNavigate();
+  const estimatesPath = activeOneDriveFolder("estimate");
+  const estimatesGraph = isOneDriveGraphConfigured("estimate");
   const [estimateFiles, setEstimateFiles] = useState([]);
-  const [folderName, setFolderName] = useState("");
+  const [folderName, setFolderName] = useState(estimatesGraph ? `OneDrive: ${estimatesPath}` : "");
+  const [folderDetail, setFolderDetail] = useState(estimatesGraph ? "Checking OneDrive…" : "");
   const [emailFile, setEmailFile] = useState(null);
   const [emailTo, setEmailTo] = useState("");
   const [emailCc, setEmailCc] = useState("");
@@ -115,23 +119,36 @@ export default function QuoteList() {
   const [estimateSource, setEstimateSource] = useState("none");
 
   const loadEstimateFiles = async () => {
-    if (isOneDriveGraphConfigured("estimate")) {
-      const graphList = await listOneDriveFiles("estimate", "Est");
-      if (graphList.ok) {
-        setEstimateFiles(graphList.files || []);
-        setFolderName(`OneDrive: ${activeOneDriveFolder("estimate")}`);
-        setEstimateSource("onedrive");
-        return;
+    if (estimatesGraph) {
+      setFolderName(`OneDrive: ${estimatesPath}`);
+      setFolderDetail("Checking OneDrive…");
+      let graphList;
+      try {
+        graphList = await listOneDriveFiles("estimate", "Est");
+      } catch (err) {
+        graphList = { ok: false, reason: err?.code || "list-failed" };
       }
+      const view = invoiceFolderView({
+        graphMode: true,
+        configuredPath: estimatesPath,
+        listed: graphList,
+      });
+      setEstimateFiles(view.files || []);
+      setFolderName(view.folderLabel);
+      setFolderDetail(view.detail);
+      setEstimateSource(graphList.ok ? "onedrive" : "none");
+      return;
     }
 
     const handle = await loadEstimateDirectoryHandle();
     if (!handle) {
       setEstimateFiles([]);
       setFolderName("");
+      setFolderDetail("Auto-save folder not configured.");
       setEstimateSource("none");
       return;
     }
+    setFolderDetail("");
 
     setFolderName(handle.name || "");
     const entries = [];
@@ -153,8 +170,8 @@ export default function QuoteList() {
 
   useEffect(() => {
     const init = async () => {
-      const existing = await loadEstimateDirectoryHandle();
-      if (!existing && window.showDirectoryPicker) {
+      const existing = estimatesGraph ? null : await loadEstimateDirectoryHandle();
+      if (!estimatesGraph && !existing && window.showDirectoryPicker) {
         const shouldPick = confirm(
           "Select your Estimates folder now (recommended: C:\\Users\\chadt\\OneDrive\\Desktop\\Business\\Disposal Solutions\\Estimates)?"
         );
@@ -453,7 +470,8 @@ export default function QuoteList() {
 
       <div className="settings-card win-panel">
         <h3>Existing Folder Contents</h3>
-        <p>{folderName ? `Folder: ${folderName}` : "Auto-save folder not configured."}</p>
+        <p>{folderName ? `Folder: ${folderName}` : (folderDetail || "Auto-save folder not configured.")}</p>
+        {folderName && folderDetail ? <p>{folderDetail}</p> : null}
         <button className="btn-secondary win-btn-secondary" onClick={loadEstimateFiles}>
           Refresh Folder List
         </button>
