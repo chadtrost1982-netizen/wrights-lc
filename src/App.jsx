@@ -12,6 +12,7 @@ import {
   beginSignInRedirect,
   consumeSaveNotice,
   getSignedInEmail,
+  signInToOneDrive,
   signOutRedirect,
 } from "./utils/oneDriveGraph";
 import MailStatusBanner from "./components/MailStatusBanner";
@@ -21,6 +22,7 @@ export default function App() {
   const [authState, setAuthState] = useState("checking");
   const [activeEmail, setActiveEmail] = useState("");
   const requireAuth = String(import.meta.env.VITE_REQUIRE_AUTH || "false").toLowerCase() === "true";
+  const graphReady = Boolean(String(import.meta.env.VITE_AZURE_CLIENT_ID || "").trim());
   const allowedEmails = useMemo(
     () =>
       String(import.meta.env.VITE_ALLOWED_EMAILS || "")
@@ -34,6 +36,32 @@ export default function App() {
     const notice = consumeSaveNotice();
     if (notice) alert(notice);
   }, []);
+
+  useEffect(() => {
+    if (!graphReady || requireAuth) return undefined;
+    let cancelled = false;
+    getSignedInEmail().then((email) => {
+      if (!cancelled && email) setActiveEmail(email);
+    }).catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [graphReady, requireAuth]);
+
+  const onMicrosoftSignIn = async () => {
+    try {
+      const result = await signInToOneDrive();
+      if (result?.email) setActiveEmail(result.email);
+      if (result?.ok) {
+        alert(`Signed in to Microsoft as ${result.email || "your account"}. You can export the invoice again.`);
+        return;
+      }
+      if (result?.reason === "redirecting" || result?.reason === "user-cancelled") return;
+      alert(result?.message || "Microsoft sign-in did not finish. Try Sign in again.");
+    } catch (err) {
+      alert(err?.message || "Microsoft sign-in did not finish. Try Sign in again.");
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -105,6 +133,19 @@ export default function App() {
           <Link to="/invoice-tools">Invoices</Link>
           <Link to="/settings">Settings</Link>
           <InstallAppButton />
+          {graphReady && (
+            <span className="nav-account">
+              <span>{activeEmail ? `Microsoft: ${activeEmail}` : "Microsoft not signed in"}</span>
+              <button type="button" className="install-app" onClick={onMicrosoftSignIn}>
+                {activeEmail ? "Sign in again" : "Sign in to Microsoft"}
+              </button>
+              {activeEmail ? (
+                <button type="button" className="install-app" onClick={() => signOutRedirect()}>
+                  Sign out
+                </button>
+              ) : null}
+            </span>
+          )}
         </nav>
         <MailStatusBanner />
 

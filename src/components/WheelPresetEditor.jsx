@@ -5,6 +5,7 @@ import {
   deleteWheelWork,
   editWheelCustomer,
   editWheelWork,
+  emptyWheelBook,
   visibleCustomers,
   visibleWorks,
 } from "../utils/wheelPresetCore";
@@ -43,6 +44,12 @@ export default function WheelPresetEditor() {
       bookRef.current = result.book;
       setBook(result.book);
       setNote(noteFor(result));
+    }).catch((err) => {
+      if (!active) return;
+      const fallback = emptyWheelBook();
+      bookRef.current = fallback;
+      setBook(fallback);
+      setNote(err?.message || "Could not load saved wheel prices. Click Sign in again at the top of the page.");
     });
     return () => {
       active = false;
@@ -61,7 +68,7 @@ export default function WheelPresetEditor() {
       {note && <p style={{ marginBottom: "12px" }}>{note}</p>}
 
       <h4>Customers</h4>
-      {customers.length === 0 && <p>No saved customers yet.</p>}
+      {book && customers.length === 0 && <p>No saved customers yet.</p>}
       {customers.map((name) => (
         <div className="wheel-preset-row" key={name}>
           <input
@@ -103,7 +110,7 @@ export default function WheelPresetEditor() {
       </div>
 
       <h4>Work and rate</h4>
-      {works.length === 0 && <p>No saved prices yet.</p>}
+      {book && works.length === 0 && <p>No saved prices yet.</p>}
       {works.map((item) => (
         <div className="wheel-preset-row" key={item.work}>
           <input

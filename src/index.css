@@ -216,6 +216,21 @@ h2 {
   background: rgba(242, 194, 0, 0.12);
 }
 
+.top-nav .nav-account {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  color: #f5f5f5;
+  font-size: 14px;
+}
+
+.top-nav .nav-account .install-app {
+  width: auto;
+  margin-top: 0;
+}
+
 /* --------------------------------------------------
    BUTTONS
 -------------------------------------------------- */
@@ -1152,7 +1167,8 @@ h2 {
     padding: 10px;
   }
 
-  .top-nav a {
+  .top-nav a,
+  .top-nav .nav-account {
     flex-basis: 100%;
     width: 100%;
   }

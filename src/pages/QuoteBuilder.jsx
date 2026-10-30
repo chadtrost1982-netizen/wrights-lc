@@ -13,6 +13,7 @@ import {
   writeBlobToEstimateFolder,
 } from "../utils/autoSaveFolder";
 import { clearPendingOneDriveUpload, queuePendingOneDriveUpload, uploadBlobToOneDrive } from "../utils/oneDriveGraph";
+import { driveFailureMessage } from "../utils/driveStatus";
 import CatalogAccess from "../components/CatalogAccess";
 import { allocateDocumentNumber } from "../utils/documentCounters";
 import { useCatalog } from "../utils/useCatalog";
@@ -703,13 +704,9 @@ export default function QuoteBuilder() {
           : `${quoteExcelFile}`;
         alert(`File saved to OneDrive: ${graphLocation}`);
       } else if (excelAutoSave.ok) {
-        alert(`File saved to selected local folder: ${quoteExcelFile}`);
+        alert(`Saved on this device only (${quoteExcelFile}). ${driveFailureMessage(graphSaved.reason, graphSaved.status)}`);
       } else {
-        if (graphSaved.reason === "not-configured") {
-          alert("Estimate path is not configured. Set VITE_ONEDRIVE_ESTIMATES_PATH in Vercel and redeploy.");
-        } else {
-          alert("Estimate saved locally in app data. Estimates folder is not configured.");
-        }
+        alert(`${driveFailureMessage(graphSaved.reason, graphSaved.status)} The estimate is still stored in this app.`);
       }
       clearQuote();
     } catch (error) {
